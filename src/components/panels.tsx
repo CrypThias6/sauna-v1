@@ -139,25 +139,10 @@ export function ConnectPanel({ onClose }: { onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const linkRef = useRef<HTMLInputElement>(null)
   const [copied, setCopied] = useState(false)
-  const here = `${window.location.origin}/mcp`
-  const [url, setUrl] = useState(here)
+  const url = `${window.location.origin}/mcp`
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
-  useEffect(() => {
-    let stop = false
-    fetch('/mcp', { headers: { accept: 'application/json' } })
-      .then((res) => {
-        if (!res.ok) throw new Error('offline')
-        if (!stop) setUrl(here)
-      })
-      .catch(() => {
-        if (!stop) setUrl('http://localhost:5173/mcp')
-      })
-    return () => {
-      stop = true
-    }
-  }, [here])
   const copy = () => {
     const mark = () => {
       setCopied(true)
