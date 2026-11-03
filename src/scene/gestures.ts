@@ -2,9 +2,8 @@ import { ROOM_SPACING } from './space'
 import type { Bridge } from './bridge'
 
 /**
- * Touch: a mostly-horizontal drag changes rooms. Anything else is left to
- * OrbitControls, which is the only orbit implementation.
- * Trackpad: a horizontal wheel also changes rooms.
+ * Touch: a long sideways drag changes rooms. A short or diagonal drag stays
+ * an orbit. Trackpad: only a clear horizontal swipe changes rooms.
  */
 export function attachGestures(el: HTMLElement, bridge: Bridge, commit: (index: number) => void) {
   let start: { x: number; y: number; t: number } | null = null
@@ -23,7 +22,11 @@ export function attachGestures(el: HTMLElement, bridge: Bridge, commit: (index: 
 
   const endSwipe = (dx: number) => {
     const width = el.clientWidth || 1
-    const flicked = Math.abs(dx) > Math.min(96, width * 0.18) || Math.abs(velocityX) > 0.55
+    const distance = Math.abs(dx)
+    // Most of the sauna has to travel. A quick twitch used to be enough.
+    const far = distance > Math.max(150, width * 0.42)
+    const thrown = distance > width * 0.28 && Math.abs(velocityX) > 1.2
+    const flicked = far || thrown
     let next = bridge.index
     if (flicked && dx < 0 && bridge.index < bridge.count - 1) next += 1
     if (flicked && dx > 0 && bridge.index > 0) next -= 1
@@ -43,8 +46,8 @@ export function attachGestures(el: HTMLElement, bridge: Bridge, commit: (index: 
     lastT = now
 
     if (mode === 'undecided') {
-      if (Math.hypot(dx, dy) < 12) return
-      if (Math.abs(dx) > Math.abs(dy) * 1.35) {
+      if (Math.hypot(dx, dy) < 22) return
+      if (Math.abs(dx) > Math.abs(dy) * 2.4 && Math.abs(dx) > 36) {
         mode = 'swipe'
         if (bridge.controls) bridge.controls.enabled = false
         restore()
@@ -97,15 +100,15 @@ export function attachGestures(el: HTMLElement, bridge: Bridge, commit: (index: 
   let wheelAccum = 0
   let wheelTimer = 0
   const onWheel = (event: WheelEvent) => {
-    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 8) return
+    if (Math.abs(event.deltaX) < Math.abs(event.deltaY) * 2.4 || Math.abs(event.deltaX) < 24) return
     event.preventDefault()
     wheelAccum += event.deltaX
     window.clearTimeout(wheelTimer)
     wheelTimer = window.setTimeout(() => {
-      if (wheelAccum > 24) commit(bridge.index + 1)
-      else if (wheelAccum < -24) commit(bridge.index - 1)
+      if (wheelAccum > 180) commit(bridge.index + 1)
+      else if (wheelAccum < -180) commit(bridge.index - 1)
       wheelAccum = 0
-    }, 60)
+    }, 80)
   }
 
   el.addEventListener('pointerdown', onDown)
