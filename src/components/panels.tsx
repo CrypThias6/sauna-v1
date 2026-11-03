@@ -137,11 +137,69 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 export function ConnectPanel({ onClose }: { onClose: () => void }) {
   const listening = useSyncExternalStore(subscribeBridge, bridgeListening, () => false)
   const closeRef = useRef<HTMLButtonElement>(null)
+  const linkRef = useRef<HTMLInputElement>(null)
   const [copied, setCopied] = useState(false)
-  const url = `${window.location.origin}/mcp`
+  const here = `${window.location.origin}/mcp`
+  const [url, setUrl] = useState(here)
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
+  useEffect(() => {
+    let stop = false
+    fetch('/mcp', { headers: { accept: 'application/json' } })
+      .then((res) => {
+        if (!res.ok) throw new Error('offline')
+        if (!stop) setUrl(here)
+      })
+      .catch(() => {
+        if (!stop) setUrl('http://localhost:5173/mcp')
+      })
+    return () => {
+      stop = true
+    }
+  }, [here])
+  const copy = () => {
+    const mark = () => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    }
+    const fallback = () => {
+      const field = linkRef.current
+      if (!field) return
+      field.focus()
+      field.select()
+      try {
+        if (document.execCommand('copy')) mark()
+      } catch {
+        /* The address stays selected so it can be copied by hand. */
+      }
+    }
+    const clip = navigator.clipboard?.writeText?.(url)
+    if (!clip) {
+      fallback()
+      return
+    }
+    let settled = false
+    const timer = window.setTimeout(() => {
+      if (settled) return
+      settled = true
+      fallback()
+    }, 400)
+    void clip.then(
+      () => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        mark()
+      },
+      () => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        fallback()
+      },
+    )
+  }
   return (
     <div className="overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <div className="panel" role="dialog" aria-modal="true" aria-label="MCP">
@@ -153,36 +211,9 @@ export function ConnectPanel({ onClose }: { onClose: () => void }) {
         </header>
         <div className="mcp-row">
           <span className="live" data-on={listening} aria-label={listening ? 'Listening' : 'Not connected'} />
-          <input readOnly value={url} aria-label="MCP link" onFocus={(event) => event.target.select()} />
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label={copied ? 'Copied' : 'Copy'}
-            onClick={() => {
-              const mark = () => {
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 1400)
-              }
-              const fallback = () => {
-                const area = document.createElement('textarea')
-                area.value = url
-                area.setAttribute('readonly', '')
-                area.style.position = 'fixed'
-                area.style.left = '-9999px'
-                document.body.appendChild(area)
-                area.select()
-                const ok = document.execCommand('copy')
-                area.remove()
-                if (ok) mark()
-              }
-              if (navigator.clipboard?.writeText) {
-                void navigator.clipboard.writeText(url).then(mark, fallback)
-              } else {
-                fallback()
-              }
-            }}
-          >
-            {copied ? '✓' : '⧉'}
+          <input ref={linkRef} readOnly value={url} aria-label="MCP link" onFocus={(event) => event.target.select()} />
+          <button type="button" className="copy" onClick={copy}>
+            {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
         <p className="mcp-line">Heat, door, people, calendar.</p>
