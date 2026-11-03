@@ -18,7 +18,7 @@ import { heatUnit } from '../lib/heat'
 import { useHinge } from './hinge'
 import { Barrel } from './barrel'
 import { Cabin } from './cabin'
-import { BenchMarkers, People, Steam, Walker } from './people'
+import { People, Steam, Walker } from './people'
 
 useGLTF.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/')
 useGLTF.preload(SMALL_MODEL, true)
@@ -67,8 +67,9 @@ function cloneMaterials(root: Object3D) {
         // The exported door glass is almost black, so the interior light never
         // shows through it. Lighten it enough to read the room, keep the tint.
         if (next.name === 'Door_Glass_Tinted') {
-          next.color.set('#c4aa9a')
-          next.opacity = 0.45
+          // Light enough that the people behind the pane still read.
+          next.color.set('#f4efe8')
+          next.opacity = 0.16
           next.transparent = true
         }
       }
@@ -99,7 +100,6 @@ type Rig = {
   /** Positive rotation.y swings the free edge toward +z when the hinge is on +x. */
   openAngle: number
   handle: [number, number, number]
-  bench: Object3D | null
   heater: Object3D | null
 }
 
@@ -139,7 +139,6 @@ function prepareModel(source: Object3D): Rig {
     hinge,
     openAngle,
     handle,
-    bench: root.getObjectByName('Bench') ?? null,
     heater: root.getObjectByName('Heater') ?? null,
   }
 }
@@ -230,7 +229,7 @@ function LoadedModel({ url, sauna }: { url: string; sauna: Sauna }) {
           </mesh>,
           rig.hinge,
         )}
-      {rig.bench && createPortal(<BenchMarkers sauna={sauna} />, rig.bench)}
+      <People sauna={sauna} />
       <InteriorGlow sauna={sauna} />
     </group>
   )

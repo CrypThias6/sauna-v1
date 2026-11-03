@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { Bridge } from '../scene/bridge'
 import { attachGestures } from '../scene/gestures'
 import { Viewport } from '../scene/viewport'
-import { arriveAtBig, cancelVisit } from '../scene/visit'
+import { arriveAt, cancelVisit } from '../scene/visit'
 import { ViewError } from './view-error'
 import { TopActions } from './panels'
 import { useSauna } from '../state/store'
@@ -54,15 +54,11 @@ export function Stage({
   useEffect(() => {
     bridge.index = index
     if (prevIndex.current === index) return
-    const from = prevIndex.current
     prevIndex.current = index
     bridge.drag = 0
-    if (index === 1 && from !== 1) {
-      const big = saunasRef.current.find((room) => room.id === 'big')
-      if (big) arriveAtBig(big, visitApi.current)
-    } else {
-      cancelVisit()
-    }
+    cancelVisit()
+    const room = saunasRef.current[index]
+    if (room) arriveAt(room, visitApi.current)
   }, [bridge, index])
 
   useEffect(() => {

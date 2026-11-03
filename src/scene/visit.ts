@@ -25,16 +25,22 @@ type VisitApi = {
 const listeners = new Set<() => void>()
 let visit: Visit | null = null
 let timers: number[] = []
-let arrivals = 0
 let nextKind: VisitKind = 'out'
 
 /**
- * Door face is about z = 1.95. The open door swings toward the camera on the
- * hinge's left, so the visitor stands further left, off the barrel, where the
- * black background is. Measured: this spot projects clear of the wood.
+ * The open door swings onto the hinge's left (−x). Stand further left, off
+ * the barrel. The big sauna's door face is z ≈ 1.95; these offsets were
+ * measured so the figure clears that wood. The same offsets from each
+ * room's own door face land the small sauna the same way.
  */
-const THRESHOLD: [number, number, number] = [-0.7, 0, 2.5]
-const OUTSIDE: [number, number, number] = [-1.35, 0, 2.4]
+function passage(sauna: Sauna): { via: [number, number, number]; outside: [number, number, number] } {
+  const door = sauna.slots.find((slot) => slot.zone === 'door')
+  const faceZ = (door?.position[2] ?? 0.8) + 0.5
+  return {
+    via: [-0.7, 0, faceZ + 0.55],
+    outside: [-1.35, 0, faceZ + 0.45],
+  }
+}
 
 function emit() {
   listeners.forEach((listener) => listener())
@@ -103,13 +109,8 @@ function feet(slot: Slot): [number, number, number] {
   return [slot.position[0], 0, slot.position[2]]
 }
 
-/**
- * Every second arrival at the big sauna.
- * Odd visits do nothing. Even visits alternate leaving and arriving.
- */
-export function arriveAtBig(sauna: Sauna, api: VisitApi) {
-  arrivals += 1
-  if (arrivals % 2 !== 0) return
+/** Each arrival alternates someone leaving and someone arriving. */
+export function arriveAt(sauna: Sauna, api: VisitApi) {
   const kind = nextKind
   nextKind = kind === 'out' ? 'in' : 'out'
   const played = play(sauna, kind, api) || play(sauna, kind === 'out' ? 'in' : 'out', api)
@@ -118,6 +119,7 @@ export function arriveAtBig(sauna: Sauna, api: VisitApi) {
 
 function play(sauna: Sauna, kind: VisitKind, api: VisitApi) {
   clearTimers()
+  const { via, outside } = passage(sauna)
   if (kind === 'out') {
     const who = leaving(sauna)
     if (!who) return false
@@ -127,8 +129,8 @@ function play(sauna: Sauna, kind: VisitKind, api: VisitApi) {
       personId: who.person.id,
       color: who.person.towel,
       from: feet(who.slot),
-      via: THRESHOLD,
-      to: OUTSIDE,
+      via,
+      to: outside,
       slotId: who.slot.id,
       zone: who.slot.zone,
       t0: performance.now(),
@@ -154,8 +156,8 @@ function play(sauna: Sauna, kind: VisitKind, api: VisitApi) {
     kind,
     personId: person.id,
     color: person.towel,
-    from: OUTSIDE,
-    via: THRESHOLD,
+    from: outside,
+    via,
     to: feet(slot),
     slotId: slot.id,
     zone: slot.zone,

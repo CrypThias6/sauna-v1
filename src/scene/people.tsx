@@ -1,5 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { MathUtils, type Group } from 'three'
 import type { Sauna, Slot } from '../types'
@@ -10,21 +9,21 @@ function Figure({ seated, color }: { seated: boolean; color: string }) {
   if (seated) {
     return (
       <group>
-        <mesh position={[0, 0.16, 0.1]} castShadow>
+        <mesh position={[0, 0.16, 0.1]} castShadow frustumCulled={false}>
           <boxGeometry args={[0.34, 0.14, 0.3]} />
-          <meshStandardMaterial color={color} roughness={0.82} />
+          <meshBasicMaterial color={color} />
         </mesh>
-        <mesh position={[0, 0.4, 0]} castShadow>
+        <mesh position={[0, 0.4, 0]} castShadow frustumCulled={false}>
           <boxGeometry args={[0.3, 0.32, 0.2]} />
-          <meshStandardMaterial color={color} roughness={0.82} />
+          <meshBasicMaterial color={color} />
         </mesh>
-        <mesh position={[0, 0.68, 0.02]}>
+        <mesh position={[0, 0.68, 0.02]} frustumCulled={false}>
           <sphereGeometry args={[0.11, 16, 12]} />
-          <meshStandardMaterial color={skin} roughness={0.72} />
+          <meshBasicMaterial color={skin} />
         </mesh>
-        <mesh position={[0, 0.68, 0.12]}>
+        <mesh position={[0, 0.68, 0.12]} frustumCulled={false}>
           <boxGeometry args={[0.03, 0.025, 0.04]} />
-          <meshStandardMaterial color={skin} roughness={0.7} />
+          <meshBasicMaterial color={skin} />
         </mesh>
       </group>
     )
@@ -84,22 +83,7 @@ function Person({ slot, color }: { slot: Slot; color: string }) {
   )
 }
 
-/** Glowing seat marks parented to the Bench of a loaded model. */
-export function BenchMarkers({ sauna }: { sauna: Sauna }) {
-  const hidden = useSyncExternalStore(subscribeVisit, hiddenId, hiddenId)
-  return (
-    <group>
-      {sauna.occupants.map((person) => {
-        if (person.id === hidden) return null
-        const slot = sauna.slots.find((item) => item.id === person.slot)
-        if (!slot) return null
-        return <Marker key={person.id} slot={slot} color={person.towel} />
-      })}
-    </group>
-  )
-}
-
-/** Someone crossing the big sauna's door. Position is in sauna metres. Stays mounted so the walk cannot miss a frame. */
+/** Someone crossing the doorway. Position is in sauna metres. Stays mounted so the walk cannot miss a frame. */
 export function Walker({ roomId }: { roomId: string }) {
   const ref = useRef<Group>(null)
   const visit = useSyncExternalStore(subscribeVisit, getVisit, getVisit)
@@ -131,57 +115,12 @@ export function Walker({ roomId }: { roomId: string }) {
   )
 }
 
-function Marker({ slot, color }: { slot: Slot; color: string }) {
-  const ref = useRef<Group>(null)
-  const slotRef = useRef(slot)
-  slotRef.current = slot
-
-  useLayoutEffect(() => {
-    const group = ref.current
-    const place = slotRef.current
-    if (!group) return
-    group.position.set(place.position[0], place.position[1], place.position[2])
-  }, [])
-
-  useFrame((_, dt) => {
-    const group = ref.current
-    if (!group) return
-    const place = slotRef.current
-    const k = 3
-    group.position.x = MathUtils.damp(group.position.x, place.position[0], k, dt)
-    group.position.y = MathUtils.damp(group.position.y, place.position[1], k, dt)
-    group.position.z = MathUtils.damp(group.position.z, place.position[2], k, dt)
-  })
-
-  if (slot.seated) {
-    return (
-      <group ref={ref}>
-        <mesh position={[0, 0.07, 0]}>
-          <sphereGeometry args={[0.07, 16, 12]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.6} roughness={0.4} />
-        </mesh>
-      </group>
-    )
-  }
-
-  return (
-    <group ref={ref}>
-      <mesh position={[0, 0.48, 0]}>
-        <capsuleGeometry args={[0.09, 0.46, 4, 8]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.7} roughness={0.55} />
-      </mesh>
-      <mesh position={[0, 0.92, 0]}>
-        <sphereGeometry args={[0.1, 16, 12]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.2} roughness={0.45} />
-      </mesh>
-    </group>
-  )
-}
-
 export function People({ sauna }: { sauna: Sauna }) {
+  const hidden = useSyncExternalStore(subscribeVisit, hiddenId, hiddenId)
   return (
     <group>
       {sauna.occupants.map((person) => {
+        if (person.id === hidden) return null
         const slot = sauna.slots.find((item) => item.id === person.slot)
         if (!slot) return null
         return <Person key={person.id} slot={slot} color={person.towel} />
