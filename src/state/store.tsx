@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { initialSaunas } from '../data/saunas'
+import { noteTemperature } from '../lib/flue'
 import { stepSauna } from '../lib/sim'
 import type { Occupant, Sauna } from '../types'
 
@@ -35,14 +36,23 @@ export function SaunaProvider({ children }: { children: ReactNode }) {
   const [index, setIndex] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const [cameraId, setCameraId] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  const notedTick = useRef(0)
 
   useEffect(() => {
     const id = window.setInterval(() => {
       setNow(Date.now())
+      setTick((n) => n + 1)
       setSaunas((list) => list.map((sauna) => stepSauna(sauna)))
     }, 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (tick === 0 || notedTick.current === tick) return
+    notedTick.current = tick
+    for (const sauna of saunas) noteTemperature(sauna.id, sauna.airC)
+  }, [tick, saunas])
 
   const api = useMemo<Store>(() => {
     return {

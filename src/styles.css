@@ -922,6 +922,26 @@ button.cell:hover { background: #141612; }
   font: inherit;
 }
 
+.safe {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.safe input {
+  width: 4.2rem;
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 .mcp-row {
   display: flex;
   align-items: center;

@@ -6,6 +6,8 @@ export type Settings = {
   heat: boolean
   water: boolean
   session: boolean
+  /** No chimney smoke once the room is under this and still falling or settled. */
+  safeC: number
 }
 
 const KEY = 'sauna-settings'
@@ -16,6 +18,7 @@ const defaults: Settings = {
   heat: true,
   water: true,
   session: true,
+  safeC: 40,
 }
 
 let current = read()
@@ -26,7 +29,12 @@ function read(): Settings {
     const raw = localStorage.getItem(KEY)
     if (!raw) return { ...defaults }
     const parsed = JSON.parse(raw) as Partial<Settings>
-    return { ...defaults, ...parsed }
+    const safeC = Number(parsed.safeC)
+    return {
+      ...defaults,
+      ...parsed,
+      safeC: Number.isFinite(safeC) ? Math.min(80, Math.max(20, Math.round(safeC))) : defaults.safeC,
+    }
   } catch {
     return { ...defaults }
   }

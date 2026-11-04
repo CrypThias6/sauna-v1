@@ -19,6 +19,7 @@ import { useHinge } from './hinge'
 import { Barrel } from './barrel'
 import { Cabin } from './cabin'
 import { People, Steam, Walker } from './people'
+import { ChimneySmoke } from './smoke'
 
 useGLTF.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/')
 useGLTF.preload(SMALL_MODEL, true)
@@ -101,6 +102,8 @@ type Rig = {
   openAngle: number
   handle: [number, number, number]
   heater: Object3D | null
+  /** Top of the flue, in model metres. Smoke rises in +Y from here. */
+  mouth: [number, number, number]
 }
 
 /**
@@ -134,12 +137,20 @@ function prepareModel(source: Object3D): Rig {
     handle = [handleX - hingeX, 1.02, box.max.z - midZ + 0.02]
   }
 
+  const chimney = root.getObjectByName('Chimney')
+  let mouth: [number, number, number] = [0, 2.95, 0]
+  if (chimney) {
+    const box = new Box3().setFromObject(chimney)
+    mouth = [(box.min.x + box.max.x) / 2, box.max.y + 0.02, (box.min.z + box.max.z) / 2]
+  }
+
   return {
     root,
     hinge,
     openAngle,
     handle,
     heater: root.getObjectByName('Heater') ?? null,
+    mouth,
   }
 }
 
@@ -230,6 +241,7 @@ function LoadedModel({ url, sauna }: { url: string; sauna: Sauna }) {
           rig.hinge,
         )}
       <People sauna={sauna} />
+      <ChimneySmoke sauna={sauna} mouth={rig.mouth} />
       <InteriorGlow sauna={sauna} />
     </group>
   )
@@ -262,6 +274,7 @@ export function SaunaBody({ sauna }: { sauna: Sauna }) {
       <Procedural sauna={sauna} />
       <People sauna={sauna} />
       <FallbackLights sauna={sauna} />
+      <ChimneySmoke sauna={sauna} mouth={[0, 2.95, 0]} />
     </>
   )
 

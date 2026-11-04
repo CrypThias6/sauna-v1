@@ -1,5 +1,7 @@
 import { heatHex } from '../lib/heat'
 import { formatTemp } from '../lib/format'
+import { flueLabel, fluePhase, temperatureSamples } from '../lib/flue'
+import { useSettings } from '../lib/settings'
 import { useSauna } from '../state/store'
 import type { Sauna } from '../types'
 
@@ -15,7 +17,9 @@ function zoneLine(sauna: Sauna) {
 
 export function Controls() {
   const { saunas, index, setTarget, toggleDoor, toggleHeater } = useSauna()
+  const { safeC } = useSettings()
   const sauna = saunas[index]
+  const flue = flueLabel(fluePhase(sauna.heaterOn, sauna.airC, safeC, temperatureSamples(sauna.id)))
 
   return (
     <section className="block" id="controls" aria-label="This room">
@@ -63,7 +67,7 @@ export function Controls() {
             {Math.round(sauna.heaterPower * 100)}
             <small>%</small>
           </span>
-          <span className="s">{sauna.heaterOn ? 'Heating' : 'Off'}</span>
+          <span className="s">{flue}</span>
         </button>
       </div>
     </section>

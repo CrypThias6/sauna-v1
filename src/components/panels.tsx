@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
+import { fluePhase, temperatureSamples, type Flue } from '../lib/flue'
 import { getSettings, updateSettings, useSettings, type Settings } from '../lib/settings'
 import { bridgeListening, subscribeBridge } from '../mcp/link'
 import { getVisit } from '../scene/visit'
@@ -99,6 +100,34 @@ function Toggle({
   )
 }
 
+function SafeField() {
+  const settings = useSettings()
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <label className="safe">
+      <input
+        type="number"
+        min={20}
+        max={80}
+        step={1}
+        inputMode="numeric"
+        value={draft ?? String(settings.safeC)}
+        aria-label="Safe to leave temperature"
+        onFocus={() => setDraft(String(settings.safeC))}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          const next = Number(draft)
+          updateSettings({
+            safeC: Number.isFinite(next) ? Math.min(80, Math.max(20, Math.round(next))) : settings.safeC,
+          })
+          setDraft(null)
+        }}
+      />
+      <span>°</span>
+    </label>
+  )
+}
+
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const settings = useSettings()
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -121,6 +150,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           <Toggle setting="water" label="Water" />
           <Toggle setting="session" label="Session" />
         </div>
+        <p className="panel-k">Safe to leave</p>
+        <SafeField />
         <p className="panel-k">Account</p>
         <input
           className="account"
@@ -209,8 +240,10 @@ export function ConnectPanel({ onClose }: { onClose: () => void }) {
 
 export function Toasts() {
   const { saunas } = useSauna()
+  const { safeC } = useSettings()
   const [note, setNote] = useState<string | null>(null)
   const prev = useRef<Map<string, string> | null>(null)
+  const prevFlue = useRef<Map<string, Flue> | null>(null)
 
   useEffect(() => {
     const next = new Map(
@@ -225,28 +258,45 @@ export function Toasts() {
         ].join(':'),
       ]),
     )
+    const phases = new Map(
+      saunas.map((sauna) => [
+        sauna.id,
+        fluePhase(sauna.heaterOn, sauna.airC, safeC, temperatureSamples(sauna.id)),
+      ] as const),
+    )
     const prior = prev.current
+    const priorFlue = prevFlue.current
     prev.current = next
-    if (!prior || getVisit()) return
+    prevFlue.current = phases
     const settings = getSettings()
     let line: string | null = null
-    for (const sauna of saunas) {
-      const was = prior.get(sauna.id)
-      if (!was) continue
-      const [door, heat, water, session, ended] = was.split(':')
-      if (settings.door && door !== (sauna.doorOpen ? 'open' : 'shut')) {
-        line = `${sauna.name} · ${sauna.doorOpen ? 'Door opened' : 'Door shut'}`
-      } else if (settings.heat && heat !== (sauna.heaterOn ? 'heat' : 'off')) {
-        line = `${sauna.name} · ${sauna.heaterOn ? 'Heater on' : 'Heater off'}`
-      } else if (settings.water && water !== 'low' && sauna.water === 'low') {
-        line = `${sauna.name} · Water low`
-      } else if (settings.session && session === 'on' && ended === 'running' && sauna.session.endsInMin <= 0) {
-        line = `${sauna.name} · Session ending`
+    if (priorFlue && settings.heat) {
+      for (const sauna of saunas) {
+        if (priorFlue.get(sauna.id) !== 'safe' && phases.get(sauna.id) === 'safe') {
+          line = `${sauna.name} · Safe to leave`
+          break
+        }
       }
-      if (line) break
+    }
+    if (!line && prior && !getVisit()) {
+      for (const sauna of saunas) {
+        const was = prior.get(sauna.id)
+        if (!was) continue
+        const [door, heat, water, session, ended] = was.split(':')
+        if (settings.door && door !== (sauna.doorOpen ? 'open' : 'shut')) {
+          line = `${sauna.name} · ${sauna.doorOpen ? 'Door opened' : 'Door shut'}`
+        } else if (settings.heat && heat !== (sauna.heaterOn ? 'heat' : 'off')) {
+          line = `${sauna.name} · ${sauna.heaterOn ? 'Heater on' : 'Heater off'}`
+        } else if (settings.water && water !== 'low' && sauna.water === 'low') {
+          line = `${sauna.name} · Water low`
+        } else if (settings.session && session === 'on' && ended === 'running' && sauna.session.endsInMin <= 0) {
+          line = `${sauna.name} · Session ending`
+        }
+        if (line) break
+      }
     }
     if (line) setNote(line)
-  }, [saunas])
+  }, [saunas, safeC])
 
   useEffect(() => {
     if (!note) return
