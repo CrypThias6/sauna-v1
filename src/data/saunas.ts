@@ -9,9 +9,9 @@ export const SMALL_MODEL = publicFile('models/sauna_small.glb')
 export const BIG_MODEL = publicFile('models/sauna_big.glb')
 
 /**
- * Two barrel rooms. Models are metres, floor at y = 0, door facing +z
- * (see docs/MODELS.md). People are not in the file — seats sit on Bench,
- * clear of the heater and the door slab.
+ * Two barrel rooms. Models are metres, door facing +z (see docs/MODELS.md).
+ * v3 puts the deck skirt below y = 0, so the whole model is lifted 0.5 m
+ * and the deck top stays the floor the people stand on.
  */
 export const initialSaunas: Sauna[] = [
   {
@@ -23,7 +23,7 @@ export const initialSaunas: Sauna[] = [
     modelUrl: SMALL_MODEL,
     modelYaw: 0,
     modelScale: 1,
-    modelOffset: [0, 0, 0],
+    modelOffset: [0, 0.5, 0],
     airC: 86.4,
     targetC: 90,
     benchC: 78.2,
@@ -72,7 +72,7 @@ export const initialSaunas: Sauna[] = [
     modelUrl: BIG_MODEL,
     modelYaw: 0,
     modelScale: 1,
-    modelOffset: [0, 0, 0],
+    modelOffset: [0, 0.5, 0],
     airC: 72,
     targetC: 75,
     benchC: 66.4,

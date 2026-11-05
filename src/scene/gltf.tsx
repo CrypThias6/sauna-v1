@@ -6,6 +6,7 @@ import {
   Color,
   DoubleSide,
   Group,
+  MathUtils,
   type Material,
   type Mesh,
   type MeshStandardMaterial,
@@ -18,6 +19,7 @@ import { heatUnit } from '../lib/heat'
 import { useHinge } from './hinge'
 import { Barrel } from './barrel'
 import { Cabin } from './cabin'
+import { useSauna } from '../state/store'
 import { People, Steam, Walker } from './people'
 import { ChimneySmoke } from './smoke'
 
@@ -65,14 +67,6 @@ function cloneMaterials(root: Object3D) {
       if (isStandard(next) && isGlass(next)) {
         next.side = DoubleSide
         next.depthWrite = false
-        // The exported door glass is almost black, so the interior light never
-        // shows through it. Lighten it enough to read the room, keep the tint.
-        if (next.name === 'Door_Glass_Tinted') {
-          // Light enough that the people behind the pane still read.
-          next.color.set('#f4efe8')
-          next.opacity = 0.16
-          next.transparent = true
-        }
       }
       return next
     })
@@ -98,7 +92,7 @@ function eachOpaque(object: Object3D, visit: (material: MeshStandardMaterial) =>
 type Rig = {
   root: Object3D
   hinge: Object3D | null
-  /** Positive rotation.y swings the free edge toward +z when the hinge is on +x. */
+  /** Negative rotation.y swings the free edge out toward +z. The hinge is on -x. */
   openAngle: number
   handle: [number, number, number]
   heater: Object3D | null
@@ -107,9 +101,9 @@ type Rig = {
 }
 
 /**
- * The Door node's origin is the barrel centre, not the hinge. Reparent it onto
- * a pivot at the +X edge (handle is on the viewer's left from +Z) so it swings
- * out of that edge instead of orbiting the room.
+ * The Door node's origin is the barrel centre, not the hinge. v3 hinges on
+ * the -X edge (handle on +X). A negative rotation.y carries that free edge
+ * out toward +z instead of into the room.
  */
 function prepareModel(source: Object3D): Rig {
   const root = source.clone(true)
@@ -118,13 +112,13 @@ function prepareModel(source: Object3D): Rig {
 
   const door = root.getObjectByName('Door')
   let hinge: Object3D | null = null
-  let openAngle = DOOR_SWING
+  let openAngle = -DOOR_SWING
   let handle: [number, number, number] = [0, 1, 0]
 
   if (door?.parent) {
     const box = new Box3().setFromObject(door)
-    const hingeX = box.max.x
-    const freeX = box.min.x
+    const hingeX = box.min.x
+    const freeX = box.max.x
     const midZ = (box.min.z + box.max.z) / 2
     const pivot = new Group()
     pivot.name = 'DoorHinge'
@@ -132,7 +126,7 @@ function prepareModel(source: Object3D): Rig {
     door.parent.add(pivot)
     pivot.attach(door)
     hinge = pivot
-    openAngle = freeX < hingeX ? DOOR_SWING : -DOOR_SWING
+    openAngle = -DOOR_SWING
     const handleX = freeX + Math.sign(hingeX - freeX) * 0.07
     handle = [handleX - hingeX, 1.02, box.max.z - midZ + 0.02]
   }
@@ -152,6 +146,32 @@ function prepareModel(source: Object3D): Rig {
     heater: root.getObjectByName('Heater') ?? null,
     mouth,
   }
+}
+
+/** Hands are modelled at 10:10. Local +z faces out of the door, so clockwise is -z. */
+const AUTHORED_HOUR_DEG = 10 * 30 + 10 * 0.5
+const AUTHORED_MINUTE_DEG = 10 * 6
+
+function ClockHands({ root }: { root: Object3D }) {
+  const { now } = useSauna()
+  const nowRef = useRef(now)
+  nowRef.current = now
+  const hour = useMemo(() => root.getObjectByName('Clock_Hand_Hour'), [root])
+  const minute = useMemo(() => root.getObjectByName('Clock_Hand_Minute'), [root])
+
+  useFrame(() => {
+    if (!hour || !minute) return
+    const date = new Date(nowRef.current)
+    const hours = date.getHours() % 12
+    const minutes = date.getMinutes()
+    const seconds = date.getSeconds()
+    const hourDeg = hours * 30 + minutes * 0.5 + seconds / 120
+    const minuteDeg = minutes * 6 + seconds * 0.1
+    hour.rotation.z = -MathUtils.degToRad(hourDeg - AUTHORED_HOUR_DEG)
+    minute.rotation.z = -MathUtils.degToRad(minuteDeg - AUTHORED_MINUTE_DEG)
+  })
+
+  return null
 }
 
 function InteriorGlow({ sauna }: { sauna: Sauna }) {
@@ -226,8 +246,9 @@ function LoadedModel({ url, sauna }: { url: string; sauna: Sauna }) {
   })
 
   return (
-    <group position={sauna.modelOffset} rotation={[0, sauna.modelYaw, 0]} scale={sauna.modelScale}>
+    <>
       <primitive object={rig.root} />
+      <ClockHands root={rig.root} />
       {rig.hinge &&
         createPortal(
           <mesh position={rig.handle}>
@@ -243,7 +264,7 @@ function LoadedModel({ url, sauna }: { url: string; sauna: Sauna }) {
       <People sauna={sauna} />
       <ChimneySmoke sauna={sauna} mouth={rig.mouth} />
       <InteriorGlow sauna={sauna} />
-    </group>
+    </>
   )
 }
 
@@ -279,7 +300,7 @@ export function SaunaBody({ sauna }: { sauna: Sauna }) {
   )
 
   return (
-    <group>
+    <group position={sauna.modelOffset} rotation={[0, sauna.modelYaw, 0]} scale={sauna.modelScale}>
       {sauna.modelUrl ? (
         <ModelBoundary fallback={fallback}>
           <Suspense fallback={fallback}>

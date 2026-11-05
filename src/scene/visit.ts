@@ -28,8 +28,8 @@ let timers: number[] = []
 let nextKind: VisitKind = 'out'
 
 /**
- * The open door swings onto the hinge's left (−x). Stand further left, off
- * the barrel. The big sauna's door face is z ≈ 1.95; these offsets were
+ * The door hinges on -x and the free edge swings out toward +z. Stand
+ * further left, off the barrel. The big sauna's door face is z ≈ 1.95; these offsets were
  * measured so the figure clears that wood. The same offsets from each
  * room's own door face land the small sauna the same way.
  */
