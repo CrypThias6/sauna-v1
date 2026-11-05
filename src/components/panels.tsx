@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
+import { roomChecks } from '../lib/checks'
 import { fluePhase, temperatureSamples, type Flue } from '../lib/flue'
 import { getSettings, updateSettings, useSettings, type Settings } from '../lib/settings'
 import { bridgeListening, subscribeBridge } from '../mcp/link'
@@ -86,17 +87,71 @@ export function TopActions({ onAi, onSettings }: { onAi: () => void; onSettings:
 function Toggle({
   setting,
   label,
+  quiet = false,
 }: {
-  setting: keyof Pick<Settings, 'door' | 'heat' | 'water' | 'session'>
+  setting: keyof Pick<
+    Settings,
+    'door' | 'heat' | 'water' | 'session' | 'doorLockedSession' | 'doorOpenIdle' | 'leftOn' | 'co2On'
+  >
   label: string
+  quiet?: boolean
 }) {
   const settings = useSettings()
   const on = settings[setting]
   return (
-    <button type="button" className="toggle" aria-pressed={on} onClick={() => updateSettings({ [setting]: !on })}>
+    <button
+      type="button"
+      className={quiet ? 'toggle quiet' : 'toggle'}
+      aria-pressed={on}
+      onClick={() => updateSettings({ [setting]: !on })}
+    >
       <span>{label}</span>
       <i />
     </button>
+  )
+}
+
+function NumberRule({
+  label,
+  setting,
+  min,
+  max,
+  unit,
+}: {
+  label: string
+  setting: keyof Pick<Settings, 'underBy' | 'tooHot' | 'co2Max' | 'leadMin'>
+  min: number
+  max: number
+  unit: string
+}) {
+  const settings = useSettings()
+  const saved = settings[setting]
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <label className="rule">
+      <span>{label}</span>
+      <span className="rule-value">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={1}
+          inputMode="numeric"
+          value={draft ?? String(saved)}
+          aria-label={label}
+          onFocus={() => setDraft(String(saved))}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            const next = Number(draft)
+            updateSettings({
+              [setting]: Number.isFinite(next) ? Math.min(max, Math.max(min, Math.round(next))) : saved,
+            })
+            setDraft(null)
+          }}
+        />
+        <span>{unit}</span>
+      </span>
+    </label>
   )
 }
 
@@ -131,6 +186,7 @@ function SafeField() {
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const settings = useSettings()
   const closeRef = useRef<HTMLButtonElement>(null)
+  const [alertsOpen, setAlertsOpen] = useState(false)
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
@@ -143,13 +199,34 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             ×
           </button>
         </header>
-        <p className="panel-k">Notifications</p>
-        <div className="toggles">
-          <Toggle setting="door" label="Door" />
-          <Toggle setting="heat" label="Heat" />
-          <Toggle setting="water" label="Water" />
-          <Toggle setting="session" label="Session" />
-        </div>
+        <button
+          type="button"
+          className="disclose"
+          aria-expanded={alertsOpen}
+          onClick={() => setAlertsOpen((open) => !open)}
+        >
+          <span>
+            Alerts
+            {!alertsOpen && <small>Door, heat, water, session</small>}
+          </span>
+          <i />
+        </button>
+        {alertsOpen && (
+          <div className="toggles">
+            <Toggle setting="door" label="Door" />
+            <Toggle setting="doorLockedSession" label="Locked while a session is on" quiet />
+            <Toggle setting="doorOpenIdle" label="Open when nothing is booked" quiet />
+            <Toggle setting="heat" label="Heat" />
+            <NumberRule label="Under target by" setting="underBy" min={1} max={30} unit="°" />
+            <NumberRule label="Too hot above" setting="tooHot" min={60} max={110} unit="°" />
+            <Toggle setting="leftOn" label="Heater or lights left on in an empty room" quiet />
+            <Toggle setting="water" label="Water" />
+            <Toggle setting="session" label="Session" />
+            <NumberRule label="Show a booking this far ahead" setting="leadMin" min={5} max={120} unit="min" />
+            <Toggle setting="co2On" label="CO₂" />
+            <NumberRule label="High above" setting="co2Max" min={600} max={5000} unit="ppm" />
+          </div>
+        )}
         <p className="panel-k">Safe to leave</p>
         <SafeField />
         <p className="panel-k">Account</p>
@@ -240,12 +317,17 @@ export function ConnectPanel({ onClose }: { onClose: () => void }) {
 
 export function Toasts() {
   const { saunas } = useSauna()
-  const { safeC } = useSettings()
+  const settings = useSettings()
+  const { safeC } = settings
   const [note, setNote] = useState<string | null>(null)
   const prev = useRef<Map<string, string> | null>(null)
   const prevFlue = useRef<Map<string, Flue> | null>(null)
+  const prevWatch = useRef<Map<string, string> | null>(null)
+  const prevSettings = useRef(settings)
 
   useEffect(() => {
+    const settingsChanged = prevSettings.current !== settings
+    prevSettings.current = settings
     const next = new Map(
       saunas.map((sauna) => [
         sauna.id,
@@ -268,9 +350,18 @@ export function Toasts() {
     const priorFlue = prevFlue.current
     prev.current = next
     prevFlue.current = phases
-    const settings = getSettings()
+    const settingsNow = getSettings()
+    const watch = new Map<string, string>()
+    for (const sauna of saunas) {
+      for (const check of roomChecks(sauna, settingsNow, Date.now())) {
+        if (!check.watch || !check.alert || check.watch.endsWith(':low')) continue
+        watch.set(`${sauna.id}:${check.watch}`, `${sauna.name} · ${check.alert}`)
+      }
+    }
+    const priorWatch = prevWatch.current
+    prevWatch.current = watch
     let line: string | null = null
-    if (priorFlue && settings.heat) {
+    if (priorFlue && settingsNow.heat && !settingsChanged) {
       for (const sauna of saunas) {
         if (priorFlue.get(sauna.id) !== 'safe' && phases.get(sauna.id) === 'safe') {
           line = `${sauna.name} · Safe to leave`
@@ -278,25 +369,33 @@ export function Toasts() {
         }
       }
     }
-    if (!line && prior && !getVisit()) {
+    if (!line && prior && !settingsChanged && !getVisit()) {
       for (const sauna of saunas) {
         const was = prior.get(sauna.id)
         if (!was) continue
         const [door, heat, water, session, ended] = was.split(':')
-        if (settings.door && door !== (sauna.doorOpen ? 'open' : 'shut')) {
+        if (settingsNow.door && door !== (sauna.doorOpen ? 'open' : 'shut')) {
           line = `${sauna.name} · ${sauna.doorOpen ? 'Door opened' : 'Door shut'}`
-        } else if (settings.heat && heat !== (sauna.heaterOn ? 'heat' : 'off')) {
+        } else if (settingsNow.heat && heat !== (sauna.heaterOn ? 'heat' : 'off')) {
           line = `${sauna.name} · ${sauna.heaterOn ? 'Heater on' : 'Heater off'}`
-        } else if (settings.water && water !== 'low' && sauna.water === 'low') {
+        } else if (settingsNow.water && water !== 'low' && sauna.water === 'low') {
           line = `${sauna.name} · Water low`
-        } else if (settings.session && session === 'on' && ended === 'running' && sauna.session.endsInMin <= 0) {
+        } else if (settingsNow.session && session === 'on' && ended === 'running' && sauna.session.endsInMin <= 0) {
           line = `${sauna.name} · Session ending`
         }
         if (line) break
       }
+      if (!line && priorWatch) {
+        for (const [key, text] of watch) {
+          if (!priorWatch.has(key)) {
+            line = text
+            break
+          }
+        }
+      }
     }
     if (line) setNote(line)
-  }, [saunas, safeC])
+  }, [saunas, settings, safeC])
 
   useEffect(() => {
     if (!note) return

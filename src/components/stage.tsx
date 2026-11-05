@@ -4,6 +4,7 @@ import { Viewport } from '../scene/viewport'
 import { arriveAt, cancelVisit } from '../scene/visit'
 import { ViewError } from './view-error'
 import { TopActions } from './panels'
+import { acceptBookings, setBookingSource } from '../data/simplybook'
 import { useSauna } from '../state/store'
 
 export function Stage({
@@ -84,6 +85,8 @@ export function Stage({
       aim: (x: number, y: number, z: number) => {
         bridge.camera?.position.set(x, y, z)
       },
+      acceptBookings: (payload: unknown) => acceptBookings(payload),
+      useMockBookings: () => setBookingSource('mock'),
       snapshot: () => ({
         index: bridge.index,
         camera: bridge.camera

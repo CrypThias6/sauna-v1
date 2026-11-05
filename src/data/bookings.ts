@@ -2,14 +2,23 @@
  * Preview book for the month on screen. Not reservations.
  * The day the console calls "today" replaces the first visit
  * with the live session in the calendar.
+ * Real SimplyBook rows, once accepted, replace this book for the grid.
  */
+import { bookingSource, liveVisitsOn } from './simplybook'
 export type Visit = {
   id: string
   time: string
   minutes: number
-  room: 'Small' | 'Big'
+  room: 'Small' | 'Big' | ''
   name: string
   people: number
+  /** Set when the visit came from SimplyBook. Absent on the preview book. */
+  status?: string
+  service?: string
+  provider?: string
+  email?: string
+  phone?: string
+  notes?: string
 }
 
 type Draft = [time: string, minutes: number, room: 'Small' | 'Big', name: string, people: number]
@@ -146,6 +155,7 @@ const BOOK: Record<number, Draft[]> = {
 }
 
 export function visitsOn(year: number, monthIndex: number, day: number): Visit[] {
+  if (bookingSource() === 'simplybook') return liveVisitsOn(year, monthIndex, day)
   const drafts = BOOK[day] ?? []
   return drafts.map((draft, index) => {
     const [time, minutes, room, name, people] = draft
@@ -161,6 +171,7 @@ export function visitsOn(year: number, monthIndex: number, day: number): Visit[]
 }
 
 export function spanLabel(time: string, minutes: number) {
+  if (!time.includes(':')) return time || 'Unscheduled'
   const [hour, minute] = time.split(':').map(Number)
   const end = hour * 60 + minute + minutes
   const endHour = Math.floor(end / 60) % 24

@@ -1,85 +1,72 @@
+import { roomChecks, type Check } from '../lib/checks'
+import { useSettings } from '../lib/settings'
 import { useSauna } from '../state/store'
 
-function Cell({
-  k,
-  value,
-  sub,
-  tone,
-  onClick,
-  label,
-}: {
-  k: string
-  value: string
-  sub?: string
-  tone?: 'warn' | 'hot' | 'ok'
-  onClick?: () => void
-  label?: string
-}) {
-  if (onClick) {
+function Mark({ ok }: { ok: boolean }) {
+  return (
+    <span className="mark" aria-hidden="true">
+      {ok ? (
+        <svg viewBox="0 0 16 16" width="12" height="12">
+          <path d="M3.2 8.3l3.1 3.1 6.5-6.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="11" height="11">
+          <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      )}
+    </span>
+  )
+}
+
+function Row({ check, onPress }: { check: Check; onPress?: () => void }) {
+  const text = (
+    <>
+      <Mark ok={check.ok} />
+      <span className="check-k">{check.label}</span>
+      <span className="check-v">{check.value}</span>
+    </>
+  )
+  if (!onPress) {
     return (
-      <button type="button" className="cell" data-tone={tone} onClick={onClick} aria-label={label ?? k}>
-        <span className="k">{k}</span>
-        <strong>{value}</strong>
-        {sub && <span className="s">{sub}</span>}
-      </button>
+      <div className="check" data-ok={check.ok} aria-label={`${check.ok ? 'Ok' : 'Needs a look'}. ${check.label}. ${check.value}`}>
+        {text}
+      </div>
     )
   }
   return (
-    <div className="cell" data-tone={tone}>
-      <span className="k">{k}</span>
-      <strong>{value}</strong>
-      {sub && <span className="s">{sub}</span>}
-    </div>
+    <button type="button" className="check" data-ok={check.ok} onClick={onPress} aria-label={`${check.ok ? 'Ok' : 'Needs a look'}. ${check.label}. ${check.value}`}>
+      {text}
+    </button>
   )
 }
 
 export function Telemetry() {
-  const { saunas, index, toggleLock, toggleLights } = useSauna()
+  const { saunas, index, now, toggleLock, toggleHeater, toggleLights } = useSauna()
+  const settings = useSettings()
   const sauna = saunas[index]
-  const lightsOn = sauna.lights.filter((light) => light.on).length
-  const sessionValue = !sauna.session.active
-    ? sauna.session.mode
-    : sauna.session.endsInMin <= 0
-      ? 'Ending'
-      : `${Math.ceil(sauna.session.endsInMin)} min`
+  const checks = roomChecks(sauna, settings, now)
+  const press: Record<string, (() => void) | undefined> = {
+    lock: () => toggleLock(sauna.id),
+    heater: () => toggleHeater(sauna.id),
+    lights: () => toggleLights(sauna.id),
+  }
 
   return (
-    <section className="block" aria-label="Right now">
+    <section className="block" aria-label="Checklist">
       <div className="block-head">
         <h2>Right now</h2>
         <p>{sauna.name}</p>
       </div>
-      <div className="telemetry">
-        <Cell k="Humidity" value={`${Math.round(sauna.humidity)}%`} sub="Air" />
-        <Cell k="Bench" value={`${sauna.benchC.toFixed(1)}°`} sub="Surface" tone="hot" />
-        <Cell k="CO₂" value={`${sauna.co2}`} sub="ppm" />
-        <Cell
-          k="Lights"
-          value={`${lightsOn} of ${sauna.lights.length}`}
-          sub={lightsOn > 0 ? 'On' : 'Off'}
-          onClick={() => toggleLights(sauna.id)}
-          label={`${sauna.name} lights, ${lightsOn} of ${sauna.lights.length} on. Toggle.`}
-        />
-        <Cell
-          k="Lock"
-          value={sauna.lock === 'locked' ? 'Locked' : 'Open'}
-          sub={sauna.doorOpen ? 'Door is open' : 'Door is shut'}
-          onClick={() => toggleLock(sauna.id)}
-          label={`${sauna.name} lock, ${sauna.lock}. Toggle.`}
-        />
-        <Cell
-          k="Session"
-          value={sessionValue}
-          sub={sauna.session.active ? sauna.session.mode : 'Not in a booking'}
-        />
-        <Cell k="Draw" value={`${sauna.energyKw.toFixed(1)} kW`} sub={sauna.heaterOn ? 'Heater live' : 'Heater off'} />
-        <Cell
-          k="Water"
-          value={sauna.water === 'low' ? 'Low' : 'Ok'}
-          sub="Reservoir"
-          tone={sauna.water === 'low' ? 'warn' : 'ok'}
-        />
-      </div>
+      <ul className="checks">
+        {checks.map((check) => (
+          <li key={check.id}>
+            <Row
+              check={check}
+              onPress={check.action ? press[check.action] : undefined}
+            />
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

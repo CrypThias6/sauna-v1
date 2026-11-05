@@ -24,6 +24,13 @@ interface Window {
     toggleDoor: () => void
     toggleLights: () => void
     aim: (x: number, y: number, z: number) => void
+    acceptBookings: (payload: unknown) => {
+      accepted: number
+      updated: number
+      cancelled: number
+      skipped: number
+    }
+    useMockBookings: () => void
     snapshot: () => SaunaSnapshot
   }
 }
