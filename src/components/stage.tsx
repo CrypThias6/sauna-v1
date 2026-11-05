@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { Bridge } from '../scene/bridge'
-import { attachGestures } from '../scene/gestures'
 import { Viewport } from '../scene/viewport'
 import { arriveAt, cancelVisit } from '../scene/visit'
 import { ViewError } from './view-error'
@@ -60,12 +59,6 @@ export function Stage({
     const room = saunasRef.current[index]
     if (room) arriveAt(room, visitApi.current)
   }, [bridge, index])
-
-  useEffect(() => {
-    const el = viewRef.current
-    if (!el) return
-    return attachGestures(el, bridge, go)
-  }, [bridge, go])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -130,7 +123,7 @@ export function Stage({
           disabled={!previous}
           onClick={() => go(index - 1)}
         >
-          <span aria-hidden="true">‹</span>
+          <span aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -139,7 +132,7 @@ export function Stage({
           disabled={!next}
           onClick={() => go(index + 1)}
         >
-          <span aria-hidden="true">›</span>
+          <span aria-hidden="true" />
         </button>
       </div>
       <TopActions onAi={onAi} onSettings={onSettings} />

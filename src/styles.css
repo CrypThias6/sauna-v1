@@ -244,20 +244,51 @@ button { cursor: pointer; }
   position: absolute;
   top: 50%;
   z-index: 2;
-  transform: translateY(-50%);
-  width: 36px;
+  display: grid;
+  place-items: center;
+  width: 46px;
   height: 72px;
-  border: 0;
-  background: transparent;
-  color: rgba(243, 238, 230, 0.72);
-  font-size: 34px;
-  line-height: 1;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(243, 238, 230, 0.42);
+  border-radius: 999px;
+  background: rgba(8, 9, 7, 0.62);
+  color: #f3eee6;
+  cursor: pointer;
+  animation: nav-bob 2.6s ease-in-out infinite;
 }
 
-.nav.prev { left: 4px; }
-.nav.next { right: 4px; }
-.nav:disabled { opacity: 0.2; cursor: default; }
-.nav:not(:disabled):hover { color: white; }
+.nav span {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-top: 2.5px solid currentColor;
+  border-right: 2.5px solid currentColor;
+}
+
+.nav.prev span { transform: rotate(-135deg) translate(-1px, 1px); }
+.nav.next span { transform: rotate(45deg) translate(-1px, 1px); }
+
+.nav.prev { left: 12px; }
+.nav.next { right: 12px; animation-delay: -1.3s; }
+
+.nav:disabled {
+  opacity: 0.28;
+  cursor: default;
+  animation: none;
+  transform: translateY(-50%);
+}
+
+.nav:not(:disabled):hover {
+  color: white;
+  border-color: rgba(243, 238, 230, 0.7);
+  background: rgba(8, 9, 7, 0.82);
+}
+
+@keyframes nav-bob {
+  0%, 100% { transform: translateY(calc(-50% - 5px)); }
+  50% { transform: translateY(calc(-50% + 5px)); }
+}
 
 .block { display: flex; flex-direction: column; gap: 10px; }
 
@@ -1005,4 +1036,5 @@ button.cell:hover { background: #141612; }
 
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
+  .nav { animation: none; transform: translateY(-50%); }
 }
