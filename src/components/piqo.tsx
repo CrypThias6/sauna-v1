@@ -271,7 +271,7 @@ export function Piqo() {
       : 'Free · glow stays off unless you turn it on'
   const last = entries[0]
   const told = last
-    ? `${last.action} · ${last.sent ? 'sent' : 'recorded, not sent'}${last.reason === 'too soon' ? ' · too soon' : ''}`
+    ? `${last.action} · ${last.sent ? 'sent' : `recorded, not sent · ${last.reason}`}`
     : gate === 'in'
       ? 'Nothing recorded'
       : 'Lights wait for this Mac'
@@ -388,7 +388,7 @@ export function Piqo() {
         <ul className="piqo-log">
           {entries.slice(0, 6).map((entry, index) => (
             <li key={`${entry.time}-${entry.action}-${index}`}>
-              {entry.action} · {entry.sent ? 'sent' : 'recorded, not sent'}
+              {entry.action} · {entry.sent ? 'sent' : `recorded, not sent · ${entry.reason}`}
             </li>
           ))}
         </ul>

@@ -156,7 +156,7 @@ async function postAction(request: Request) {
   } catch {
     return json({ error: 'The log is unavailable.' }, 500)
   }
-  const outcome = runPiqoAction(action, { checkGap: true, lastToggleAt: lastToggleAt(log, action) })
+  const outcome = await runPiqoAction(action, { checkGap: true, lastToggleAt: lastToggleAt(log, action) })
   try {
     await appendActionLog([{
       time: new Date().toISOString(),
@@ -168,7 +168,16 @@ async function postAction(request: Request) {
   } catch {
     return json({ error: 'The log is unavailable.' }, 500)
   }
-  return json({ ...outcome, recorded: true, note: 'recorded, not sent' })
+  return json({
+    ok: outcome.ok,
+    receiptId: outcome.receiptId,
+    state: outcome.state,
+    sent: outcome.sent,
+    reason: outcome.reason,
+    error: outcome.error ?? null,
+    recorded: true,
+    note: outcome.ok ? 'sent' : 'recorded, not sent',
+  })
 }
 
 async function postTick(request: Request) {
@@ -199,7 +208,7 @@ async function postTick(request: Request) {
       timeZone: zone,
       sent: { read: readSentKeys, write: writeSentKeys },
       fire: async (event) => {
-        const outcome = runPiqoAction(event.action)
+        const outcome = await runPiqoAction(event.action)
         await appendActionLog([{
           time: new Date().toISOString(),
           action: event.action,

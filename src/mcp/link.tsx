@@ -111,13 +111,14 @@ function run(command: Command, api: ReturnType<typeof useSauna>) {
   return { ok: false, error: 'Unknown command.' }
 }
 
-/** Keeps the local MCP endpoint in step with this page. */
+/** Local dev only. The Vercel site has no /sauna-bridge routes, so the page does not call them. */
 export function RemoteLink() {
   const api = useSauna()
   const apiRef = useRef(api)
   apiRef.current = api
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return
     const stop = new AbortController()
     const postState = () => {
       const { saunas, index } = apiRef.current

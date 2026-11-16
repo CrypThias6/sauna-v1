@@ -43,12 +43,17 @@ You do this in the dashboard. Nothing here deploys itself.
    | Name | Value |
    | --- | --- |
    | `PIQO_READ_TOKEN` | the sensor token |
-   | `PIQO_OPERATE_TOKEN` | leave empty |
    | `PIQO_BASE_URL` | `https://proxy2.piqo.nz` |
    | `PIQO_TWIN_ID` | `25b839a8-6d58-4e62-b187-775a90e881a1` |
    | `PIQO_DEVICE_ID` | `606273ef-54cd-480a-b7ab-6024be6ed577` (optional, this is the default) |
    | `PIQO_COMPONENT` | `sht4x.09c38e29.temperature` (optional, this is the default) |
    | `PIQO_HUMIDITY_COMPONENT` | leave empty until humidity is granted |
+   | `PIQO_LINK_GLOW_ON` | Action link for Glow on. Mark it sensitive |
+   | `PIQO_LINK_GLOW_OFF` | Action link for Glow off |
+   | `PIQO_LINK_OUTDOOR_ON` | Action link for Outdoor on |
+   | `PIQO_LINK_OUTDOOR_OFF` | Action link for Outdoor off |
+   | `PIQO_LINK_GENTLE_FLASH` | Action link for Gentle flash |
+   | `PIQO_LINK_WARNING_FLASH` | Action link for Warning flash |
    | `STAFF_PASSWORD` | one shared password |
    | `SESSION_SECRET` | a long random string |
    | `CRON_SECRET` | a different long random string |
@@ -96,7 +101,7 @@ Do not guess the target. Copy it from the domain screen.
 
 ## Env names
 
-Secrets are `PIQO_READ_TOKEN`, `PIQO_OPERATE_TOKEN`, `STAFF_PASSWORD`, `SESSION_SECRET`, `CRON_SECRET`, and later the three `SIMPLYBOOK_*` names. The only `VITE_` value is `VITE_BASE`, and it is not a secret.
+Secrets are `PIQO_READ_TOKEN`, the six `PIQO_LINK_*` Action links, `STAFF_PASSWORD`, `SESSION_SECRET`, `CRON_SECRET`, and later the three `SIMPLYBOOK_*` names. The only `VITE_` value is `VITE_BASE`, and it is not a secret. `PIQO_OPERATE_TOKEN` is no longer used.
 
 `.gitignore` ignores `.env`, `.env.*` (except `.env.example`), and `.vercel`.
 
@@ -120,13 +125,14 @@ The cookie is `sauna_session`, HttpOnly, Secure, SameSite=Lax, Path=/, about 12 
 - Today’s bookings come from the server. With `BOOKINGS_SOURCE=mock`, 16 Nov is 18:00–19:30, Big, Evening, 6 people, Auckland daylight time (`+13:00`).
 - Tick on that day records, once each, even if it runs twice: Glow on 18:00; Gentle flash 18:15, 18:30, 18:45, 19:00, 19:15; Glow off 19:30; Outdoor on 20:30; Outdoor off 23:30. A mark older than 5 minutes is skipped. A mark inside the last 5 minutes still fires if it was not recorded.
 - Outdoor on/off, both colours, and the flash interval (default 15) are saved in the private Blob.
-- A manual button writes a log line. The page says **recorded, not sent**.
+- A manual button and each due tick POST the matching Action link with a fresh `request_id`. A 200 receipt is **sent**. The page says **recorded, not sent** when the link is missing or Piqo refuses it. A missing link logs the action name and the tick continues. Network errors and HTTP 5xx are tried once more. HTTP 4xx, including a revoked link (410), is not retried. The link URL is not written to the log or the page.
 - The schedule module is `src/server/schedule.ts`. It does not import Vercel, so a later on-site box can reuse it: cache that day’s bookings and settings, and keep going through a Starlink outage. A fallback, if Tim confirms it, is one Piqo timed-sequence Action per booking instead of a tick every minute.
-- `npm run dev` serves the same `/api` routes. The `/sauna-bridge` plugin stays on the dev server only.
+- `npm run dev` serves the same `/api` routes. The `/sauna-bridge` plugin stays on the dev server only. The built page does not call `/sauna-bridge/state` or `/sauna-bridge/pull`.
+- Staff toggles of the same light (glow, or outdoor) still wait about 60 seconds. Flashes are not toggles. The schedule does not use that gap. Temperature is still not an input.
 
 ## What is stubbed
 
-- **Piqo operate.** `src/server/piqo.ts` `runPiqoAction` returns `{ sent: false, reason: "no operate token yet" }` until `PIQO_OPERATE_TOKEN` is set, then `"operate API not wired"`. The `TODO(Tim)` marks the spot for the real HTTP call. Do not guess the URL. Swapping that one function is the whole operate change. Nothing is POSTed to Piqo. Tokens and headers are not written to the log. Staff toggles of the same light (glow, or outdoor) wait about 60 seconds. Flashes are not toggles. The schedule does not use that gap.
+- **Receipt follow-up.** A successful POST comes back `pending`. The console treats that receipt as sent. It does not poll `GET <link>?receipt=`.
 - **SimplyBook.** `SimplyBookBookings` in `src/server/bookings.ts` throws `not configured`. When the HTTP call exists, its body goes through `acceptBookings()` in `src/data/simplybook.ts`. Set `BOOKINGS_SOURCE=simplybook` plus `SIMPLYBOOK_COMPANY`, `SIMPLYBOOK_API_KEY`, and `SIMPLYBOOK_SECRET`. Cancelled bookings are ignored.
 - **Humidity.** If the token is refused, the row says so and stays blank. It does not show 0.
 - **CO.** No sensor. The row is a placeholder.

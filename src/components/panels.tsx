@@ -309,7 +309,9 @@ export function ConnectPanel({ onClose }: { onClose: () => void }) {
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-        <p className="mcp-line">Heat, door, people, calendar.</p>
+        <p className="mcp-line">
+          {import.meta.env.DEV ? 'Heat, door, people, calendar.' : 'This site does not run the local bridge. Lights use the staff buttons.'}
+        </p>
       </div>
     </div>
   )
