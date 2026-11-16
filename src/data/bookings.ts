@@ -1,7 +1,6 @@
 /**
  * Preview book for the month on screen. Not reservations.
- * The day the console calls "today" replaces the first visit
- * with the live session in the calendar.
+ * Every visit stays on its day, including today's first one.
  * Real SimplyBook rows, once accepted, replace this book for the grid.
  */
 import { bookingSource, liveVisitsOn } from './simplybook'

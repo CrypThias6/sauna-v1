@@ -58,10 +58,8 @@ function rowsFor(visits: Visit[], isToday: boolean, sauna: Sauna, keepBooked: bo
     people: visit.people,
     state: rowState(visit),
   }))
-  if (!isToday) return booked
-  // On the preview book, the first visit stands in for whoever is in the room.
-  // Real bookings stay listed, and the live session is added above them.
-  const rest = keepBooked ? booked : booked.slice(1)
+  if (!isToday || !keepBooked) return booked
+  // Real bookings stay listed. The live row sits above them and does not replace one.
   return [
     {
       id: 'now',
@@ -71,7 +69,7 @@ function rowsFor(visits: Visit[], isToday: boolean, sauna: Sauna, keepBooked: bo
       people: sauna.occupants.length,
       state: 'now',
     },
-    ...rest,
+    ...booked,
   ]
 }
 
@@ -95,12 +93,10 @@ export function Calendar() {
       const day = index + 1
       const visits = visitsOn(year, month, day)
       const isToday = day === todayDate
-      const people = isToday
-        ? sauna.occupants.length
-        : visits.reduce((sum, visit) => sum + visit.people, 0)
+      const people = visits.reduce((sum, visit) => sum + visit.people, 0)
       return { day, visits, isToday, people }
     })
-  }, [book, daysInMonth, month, sauna.occupants.length, todayDate, year])
+  }, [book, daysInMonth, month, todayDate, year])
 
   const current = selected != null ? days[selected - 1] : undefined
   const listed = current ? rowsFor(current.visits, current.isToday, sauna, keepBooked) : []
@@ -160,11 +156,9 @@ export function Calendar() {
           <span>{monthName}</span>
         </h3>
         <p className="cal-sum">
-          {current.isToday
-            ? `${sauna.occupants.length} in the room`
-            : sessions.length === 0
-              ? 'Nobody coming'
-              : `${total} ${peopleWord(total)} · ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`}
+          {sessions.length === 0
+            ? 'Nobody coming'
+            : `${total} ${peopleWord(total)} · ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`}
         </p>
         {listed.length === 0 ? (
           <p className="cal-none">Nothing booked this day.</p>

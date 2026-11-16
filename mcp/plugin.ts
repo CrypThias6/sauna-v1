@@ -26,7 +26,7 @@ const tools = [
   },
   {
     name: 'sauna_calendar',
-    description: 'This month’s days and how many people are in the sauna now.',
+    description: 'Booked people for each day this month, and who is in the room now.',
     inputSchema: { type: 'object', properties: {} },
   },
   {

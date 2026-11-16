@@ -23,6 +23,12 @@ export type Settings = {
   co2Max: number
   /** Minutes before a booking to show it on the list. */
   leadMin: number
+  /** Local time the outdoor lights should come on. */
+  outdoorOn: string
+  /** Local time the outdoor lights should go off. */
+  outdoorOff: string
+  /** Preferred outdoor colour. The saved Piqo action is still warm white. */
+  outdoorColor: string
 }
 
 const KEY = 'sauna-settings'
@@ -42,6 +48,9 @@ const defaults: Settings = {
   co2On: true,
   co2Max: 1200,
   leadMin: 20,
+  outdoorOn: '20:30',
+  outdoorOff: '23:30',
+  outdoorColor: '#ffc58f',
 }
 
 let current = read()
@@ -55,6 +64,20 @@ function clamp(value: unknown, min: number, max: number, fallback: number) {
 
 function flag(value: unknown, fallback: boolean) {
   return typeof value === 'boolean' ? value : fallback
+}
+
+function clock(value: unknown, fallback: string) {
+  if (typeof value !== 'string') return fallback
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!match) return fallback
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return fallback
+  return `${String(hour).padStart(2, '0')}:${match[2]}`
+}
+
+function color(value: unknown, fallback: string) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback
 }
 
 function read(): Settings {
@@ -78,6 +101,9 @@ function read(): Settings {
       tooHot: clamp(parsed.tooHot, 60, 110, defaults.tooHot),
       co2Max: clamp(parsed.co2Max, 600, 5000, defaults.co2Max),
       leadMin: clamp(parsed.leadMin, 5, 120, defaults.leadMin),
+      outdoorOn: clock(parsed.outdoorOn, defaults.outdoorOn),
+      outdoorOff: clock(parsed.outdoorOff, defaults.outdoorOff),
+      outdoorColor: color(parsed.outdoorColor, defaults.outdoorColor),
       name: typeof parsed.name === 'string' ? parsed.name : defaults.name,
     }
   } catch {

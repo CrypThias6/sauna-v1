@@ -6,6 +6,7 @@ import type { Bridge } from '../scene/bridge'
 import { Stage } from './stage'
 import { Calendar } from './calendar'
 import { Controls } from './controls'
+import { Piqo } from './piqo'
 import { Cameras } from './cameras'
 import { Telemetry } from './telemetry'
 import { ConnectPanel, SettingsPanel, Toasts } from './panels'
@@ -51,6 +52,7 @@ export function Shell() {
           <div className="sheet-inner">
             <Calendar />
             <Controls />
+            <Piqo />
             <Telemetry />
             <Cameras />
           </div>

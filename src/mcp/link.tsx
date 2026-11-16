@@ -33,8 +33,7 @@ function roomId(value: unknown) {
   return null
 }
 
-function dayPeople(sauna: Sauna, year: number, month: number, day: number, today: number) {
-  if (day === today) return sauna.occupants.length
+function dayPeople(year: number, month: number, day: number) {
   return visitsOn(year, month, day).reduce((sum, visit) => sum + visit.people, 0)
 }
 
@@ -71,7 +70,7 @@ function snapshot(saunas: Sauna[], index: number) {
       inRoom: showing?.occupants.length ?? 0,
       days: Array.from({ length: daysInMonth }, (_, i) => ({
         day: i + 1,
-        people: showing ? dayPeople(showing, year, month, i + 1, today) : 0,
+        people: dayPeople(year, month, i + 1),
       })),
     },
   }

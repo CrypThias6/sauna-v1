@@ -34,7 +34,7 @@ export function Controls() {
             {formatTemp(sauna.airC)}
             <sup>°</sup>
           </span>
-          <span className="s">Target {Math.round(sauna.targetC)}°</span>
+          <span className="s">Preview · target {Math.round(sauna.targetC)}°</span>
           <input
             type="range"
             min={40}
@@ -47,7 +47,7 @@ export function Controls() {
         </label>
 
         <div className="chip people">
-          <span className="k">In room</span>
+          <span className="k">Scene</span>
           <span className="v">
             {sauna.occupants.length}
             <small>/{sauna.capacity}</small>

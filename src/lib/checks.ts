@@ -49,7 +49,7 @@ function dueFor(sauna: Sauna, now: number): Due {
       soonMin = span.start - minute
     }
   }
-  return { on: sauna.session.active || booked != null, booked, soon, soonMin }
+  return { on: booked != null, booked, soon, soonMin }
 }
 
 function row(
@@ -69,6 +69,7 @@ export function roomChecks(sauna: Sauna, settings: Settings, now: number): Check
   const due = dueFor(sauna, now)
   const sessionOn = due.on
   const people = sauna.occupants.length
+  const party = due.booked?.people ?? 0
   const lightsOn = sauna.lights.filter((light) => light.on).length
   const air = `${formatTemp(sauna.airC)}°`
   const target = Math.round(sauna.targetC)
@@ -121,35 +122,36 @@ export function roomChecks(sauna: Sauna, settings: Settings, now: number): Check
     ),
   )
 
-  const ending = sauna.session.active && sauna.session.endsInMin <= 0
-  const missed = settings.session && due.booked != null && !sauna.session.active
   const soon = settings.session && !sessionOn && due.soon != null && due.soonMin <= settings.leadMin
-  let sessionValue = 'No session'
-  if (sauna.session.active) {
-    sessionValue = ending ? 'Ending' : `${Math.ceil(sauna.session.endsInMin)} min · ${sauna.session.mode}`
-  } else if (missed && due.booked) sessionValue = `${due.booked.name} · not started`
+  const minute = new Date(now).getHours() * 60 + new Date(now).getMinutes()
+  const remain = due.booked ? (windowOf(due.booked)?.end ?? minute) - minute : 0
+  let sessionValue = 'No booking'
+  if (due.booked) sessionValue = remain <= 0 ? 'Ending' : `${due.booked.name} · ${remain} min`
   else if (soon && due.soon) sessionValue = `Starts ${due.soon.time}`
   checks.push(
     row(
       'session',
       'Session',
       sessionValue,
-      !missed,
-      missed ? 'missed' : soon && due.soon ? `soon:${due.soon.id}` : null,
-      missed ? 'A booking is on and the session has not started' : soon && due.soon ? `Session at ${due.soon.time}` : null,
+      true,
+      soon && due.soon ? `soon:${due.soon.id}` : null,
+      soon && due.soon ? `Session at ${due.soon.time}` : null,
     ),
   )
 
-  const over = people > sauna.capacity
-  const empty = settings.session && sessionOn && people === 0
+  const over = sessionOn && party > sauna.capacity
   checks.push(
     row(
       'people',
       'People',
-      over ? `${people} of ${sauna.capacity} · over` : empty ? 'Empty · session on' : `${people} of ${sauna.capacity}`,
-      !over && !empty,
-      over ? 'over' : empty ? 'empty' : null,
-      over ? 'Over capacity' : empty ? 'Nobody in for the session' : null,
+      over
+        ? `${party} of ${sauna.capacity} · over`
+        : sessionOn
+          ? `${party} of ${sauna.capacity} · booked`
+          : 'No booking',
+      !over,
+      over ? 'over' : null,
+      over ? 'Over capacity' : null,
     ),
   )
 
