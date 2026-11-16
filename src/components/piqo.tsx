@@ -69,11 +69,22 @@ function ageLabel(recordedAt: string | null, now: number) {
   return `${Math.floor(minutes / 60)} h ago`
 }
 
+const OFFLINE_MS = 5 * 60 * 1000
+
 function stale(recordedAt: string | null, now: number) {
   if (!recordedAt) return true
   const at = Date.parse(recordedAt)
   if (!Number.isFinite(at)) return true
-  return now - at > 2 * 60 * 1000
+  return now - at > OFFLINE_MS
+}
+
+function sensorLine(reading: Reading | null, note: string | null, now: number) {
+  const updated = reading ? ageLabel(reading.recordedAt, now) : ''
+  if (!reading || stale(reading.recordedAt, now)) {
+    if (!reading && note && /token|reach|cannot read/i.test(note)) return note
+    return updated && updated !== 'No time' ? `Sensor offline · last updated ${updated}` : 'Sensor offline'
+  }
+  return `Last updated ${updated}`
 }
 
 function nzDay(now: number) {
@@ -103,16 +114,14 @@ function SensorChip({
   const old = reading ? stale(reading.recordedAt, now) : false
   const value = reading ? reading.value.toFixed(digits) : null
   return (
-    <div className="chip" data-stale={old || undefined}>
+    <div className="chip" data-stale={!reading || old ? true : undefined}>
       <span className="k">{label}</span>
       <span className="v">
         {value ?? '—'}
         {reading?.unit === 'Cel' && <sup>°</sup>}
         {label === 'Humidity' && value != null && <small>%</small>}
       </span>
-      <span className="s">
-        {reading ? `${old ? 'Stale · ' : ''}${ageLabel(reading.recordedAt, now)}` : note || 'No reading'}
-      </span>
+      <span className="s">{sensorLine(reading, note, now)}</span>
     </div>
   )
 }
@@ -144,7 +153,7 @@ export function Piqo() {
         })
         .catch(() => {
           if (stop.signal.aborted) return
-          setSensorError('The sensor is only available while this console is running on the Mac.')
+          setSensorError('Sensor offline')
         })
     }
     load()

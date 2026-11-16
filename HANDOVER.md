@@ -121,7 +121,7 @@ The cookie is `sauna_session`, HttpOnly, Secure, SameSite=Lax, Path=/, about 12 
 
 ## What works
 
-- Temperature from the Piqo pull API, with its age. Stale after 2 minutes. A missing reading is blank, not 0. The preview heater in the 3D room is still the simulation. It does not change the lights, and tick never reads the temperature.
+- Live Grove SHT4x temperature (°C) and humidity (%) from `GET /api/v1/space/readings/latest`. The page polls `/api/telemetry` every 20 seconds and shows “Last updated … ago”. A missing reading, or one older than 5 minutes, says “Sensor offline” and is never shown as 0. Simulated CO and moisture readings are ignored. The preview heater in the 3D room is still the simulation. Tick does not read the sensor, and the reading never starts a Piqo action.
 - Today’s bookings come from the server. With `BOOKINGS_SOURCE=mock`, 16 Nov is 18:00–19:30, Big, Evening, 6 people, Auckland daylight time (`+13:00`).
 - Tick on that day records, once each, even if it runs twice: Glow on 18:00; Gentle flash 18:15, 18:30, 18:45, 19:00, 19:15; Glow off 19:30; Outdoor on 20:30; Outdoor off 23:30. A mark older than 5 minutes is skipped. A mark inside the last 5 minutes still fires if it was not recorded.
 - Outdoor on/off, both colours, and the flash interval (default 15) are saved in the private Blob.
@@ -134,7 +134,7 @@ The cookie is `sauna_session`, HttpOnly, Secure, SameSite=Lax, Path=/, about 12 
 
 - **Receipt follow-up.** A successful POST comes back `pending`. The console treats that receipt as sent. It does not poll `GET <link>?receipt=`.
 - **SimplyBook.** `SimplyBookBookings` in `src/server/bookings.ts` throws `not configured`. When the HTTP call exists, its body goes through `acceptBookings()` in `src/data/simplybook.ts`. Set `BOOKINGS_SOURCE=simplybook` plus `SIMPLYBOOK_COMPANY`, `SIMPLYBOOK_API_KEY`, and `SIMPLYBOOK_SECRET`. Cancelled bookings are ignored.
-- **Humidity.** If the token is refused, the row says so and stays blank. It does not show 0.
+- **Humidity.** The same SHT4x is requested (`sht4x.09c38e29.humidity`). If Piqo refuses that component, the row says so and stays blank. It does not show 0.
 - **CO.** No sensor. The row is a placeholder.
 - **Colour.** Outdoor and glow colours are stored. The actions are still the named buttons. Piqo is not sent a colour.
 - **Page bookings.** Pasting SimplyBook into the open page still changes the calendar. The schedule does not follow that paste. It follows `BOOKINGS_SOURCE` on the server.

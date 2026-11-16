@@ -1,6 +1,19 @@
-/** Pull the latest Piqo reading. A missing value stays blank. It is never reported as 0. */
+/**
+ * Display-only Piqo readings for the Grove SHT4x on the Seeed XIAO.
+ * Tick and runPiqoAction must not import this. Temperature never drives a light.
+ *
+ * Assumed latest-reading JSON (the shape the old local bridge parsed, plus a few aliases):
+ * `{ records: [{ value, unit, recorded_at, quality, component }] }`.
+ * `component` may be a string or `{ id, name }`. `recordedAt`, `timestamp`, and `reading`
+ * are accepted too. A list may also sit under `readings`, `data`, `items`, or `results`.
+ * CO, CO₂, moisture, and anything named simulated are ignored. A missing value stays null.
+ */
 
-const STALE_MS = 2 * 60 * 1000
+export const OFFLINE_MS = 5 * 60 * 1000
+
+/** Grove SHT4x already used for this sauna. Not the simulated CO or moisture component. */
+export const SHT_TEMPERATURE = 'sht4x.09c38e29.temperature'
+export const SHT_HUMIDITY = 'sht4x.09c38e29.humidity'
 
 export type SensorReading = {
   value: number
@@ -11,6 +24,19 @@ export type SensorReading = {
   quality: string | null
 }
 
+export type Telemetry = {
+  celsius: number | null
+  humidityPercent: number | null
+  recordedAt: string | null
+  offline: boolean
+  temperature: SensorReading | null
+  humidity: SensorReading | null
+  temperatureNote: string | null
+  humidityNote: string | null
+  co: null
+  coNote: string
+}
+
 type PullConfig = {
   token: string
   base: string
@@ -19,54 +45,209 @@ type PullConfig = {
   humidity: string
 }
 
-let humidityBlocked: string | null = null
-
 function config(): PullConfig {
   return {
     token: (process.env.PIQO_READ_TOKEN || process.env.PIQO_TOKEN || '').trim(),
     base: (process.env.PIQO_BASE_URL || 'https://proxy2.piqo.nz').replace(/\/$/, ''),
-    device: process.env.PIQO_DEVICE_ID || '606273ef-54cd-480a-b7ab-6024be6ed577',
-    temperature: process.env.PIQO_COMPONENT || 'sht4x.09c38e29.temperature',
-    humidity: process.env.PIQO_HUMIDITY_COMPONENT || 'sht4x.09c38e29.humidity',
+    device: (process.env.PIQO_DEVICE_ID || '606273ef-54cd-480a-b7ab-6024be6ed577').trim(),
+    temperature: sensorComponent(process.env.PIQO_COMPONENT, SHT_TEMPERATURE),
+    humidity: sensorComponent(process.env.PIQO_HUMIDITY_COMPONENT, SHT_HUMIDITY),
   }
+}
+
+function sensorComponent(value: string | undefined, fallback: string) {
+  const name = value?.trim() || fallback
+  if (/co2|carbon|moisture|simulated/i.test(name)) return fallback
+  return name
 }
 
 function safeError(error: unknown, token: string) {
   const message = error instanceof Error ? error.message : 'Could not reach Piqo.'
-  if (token && message.includes(token)) return 'Could not reach Piqo.'
-  return message.slice(0, 180)
+  const cleaned = token && message.includes(token) ? 'Could not reach Piqo.' : message
+  return cleaned.replace(/bearer\s+\S+/gi, 'bearer').slice(0, 180)
 }
 
-function ageOf(recordedAt: string | null, now: number) {
-  if (!recordedAt) return { ageMs: null as number | null, stale: true }
-  const at = Date.parse(recordedAt)
-  if (!Number.isFinite(at)) return { ageMs: null, stale: true }
-  const ageMs = Math.max(0, now - at)
-  return { ageMs, stale: ageMs > STALE_MS }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readingFrom(record: Record<string, unknown> | undefined, now: number): SensorReading | null {
-  if (!record || record.value == null || record.value === '') return null
-  const value = typeof record.value === 'number' ? record.value : Number(record.value)
-  if (!Number.isFinite(value)) return null
-  const recordedAt = typeof record.recorded_at === 'string' ? record.recorded_at : null
-  const { ageMs, stale } = ageOf(recordedAt, now)
+function textOf(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (!isRecord(value)) return ''
+  return [value.id, value.name, value.component, value.metric, value.kind, value.label, value.quantity]
+    .map(textOf)
+    .filter(Boolean)
+    .join(' ')
+}
+
+function identity(record: Record<string, unknown>) {
+  return [
+    record.component,
+    record.component_id,
+    record.componentId,
+    record.metric,
+    record.name,
+    record.quantity,
+    record.sensor,
+    record.kind,
+    record.label,
+  ]
+    .map(textOf)
+    .join(' ')
+    .toLowerCase()
+}
+
+function numberOf(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function whenOf(record: Record<string, unknown>) {
+  for (const key of ['recorded_at', 'recordedAt', 'timestamp', 'time', 'ts', 'at']) {
+    const value = record[key]
+    if (typeof value === 'string' && Number.isFinite(Date.parse(value))) return value
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const ms = value < 1e12 ? value * 1000 : value
+      return new Date(ms).toISOString()
+    }
+  }
+  return null
+}
+
+function readingFrom(record: Record<string, unknown>, now: number, unit: string | null): SensorReading | null {
+  const value = numberOf(record.value ?? record.reading ?? record.v)
+  if (value == null) return null
+  const recordedAt = whenOf(record)
+  const ageMs = recordedAt ? Math.max(0, now - Date.parse(recordedAt)) : null
   return {
     value,
-    unit: typeof record.unit === 'string' ? record.unit : null,
+    unit,
     recordedAt,
     ageMs,
-    stale,
+    stale: ageMs == null || ageMs > OFFLINE_MS,
     quality: typeof record.quality === 'string' ? record.quality : null,
+  }
+}
+
+function rejected(blob: string) {
+  return /co2|carbon|moisture|simulated|\bco\b/.test(blob)
+}
+
+function temperatureUnit(record: Record<string, unknown>, blob: string) {
+  const unit = textOf(record.unit).toLowerCase()
+  if (/cel|celsius|°c|^c$/.test(unit)) return 'Cel'
+  if (/sht4x|sht40|grove/.test(blob) && /temperature|\btemp\b/.test(blob)) return 'Cel'
+  if (/temperature|\btemp\b/.test(blob) && !/humidity/.test(blob)) return 'Cel'
+  return null
+}
+
+function humidityUnit(record: Record<string, unknown>, blob: string) {
+  const unit = textOf(record.unit).toLowerCase()
+  if (/%|rh|percent|humidity/.test(unit)) return '%'
+  if (/humidity|relative_humidity|\brh\b/.test(blob)) return '%'
+  return null
+}
+
+function plausibleTemp(value: number) {
+  return value >= -40 && value <= 140
+}
+
+function plausibleHumidity(value: number) {
+  return value >= 0 && value <= 100
+}
+
+function newer(a: SensorReading | null, b: SensorReading | null) {
+  if (!a) return b
+  if (!b) return a
+  return Date.parse(b.recordedAt ?? '') > Date.parse(a.recordedAt ?? '') ? b : a
+}
+
+function rowsOf(body: unknown): Record<string, unknown>[] {
+  if (Array.isArray(body)) return body.filter(isRecord)
+  if (!isRecord(body)) return []
+  for (const key of ['records', 'readings', 'data', 'items', 'results']) {
+    if (Array.isArray(body[key])) return body[key].filter(isRecord)
+  }
+  if ('value' in body || 'reading' in body) return [body]
+  return []
+}
+
+/**
+ * Pick the SHT4x temperature and humidity out of a Piqo readings payload.
+ * `prefer` is the component this request asked for, so a bare `{ value, recorded_at }`
+ * still counts when Piqo does not repeat the component name.
+ */
+export function parseReadings(
+  body: unknown,
+  now = Date.now(),
+  prefer?: 'temperature' | 'humidity',
+): { temperature: SensorReading | null; humidity: SensorReading | null } {
+  let temperature: SensorReading | null = null
+  let humidity: SensorReading | null = null
+  for (const record of rowsOf(body)) {
+    const blob = identity(record)
+    if (rejected(blob)) continue
+    const tempUnit = temperatureUnit(record, blob)
+    if (tempUnit && !/humidity/.test(blob)) {
+      const reading = readingFrom(record, now, tempUnit)
+      if (reading && plausibleTemp(reading.value)) temperature = newer(temperature, reading)
+      continue
+    }
+    const humidUnit = humidityUnit(record, blob)
+    if (humidUnit) {
+      const reading = readingFrom(record, now, humidUnit)
+      if (reading && plausibleHumidity(reading.value)) humidity = newer(humidity, reading)
+    }
+  }
+  if (prefer === 'temperature' && !temperature) temperature = fallback(body, now, 'temperature')
+  if (prefer === 'humidity' && !humidity) humidity = fallback(body, now, 'humidity')
+  return { temperature, humidity }
+}
+
+function fallback(body: unknown, now: number, kind: 'temperature' | 'humidity') {
+  let chosen: SensorReading | null = null
+  for (const record of rowsOf(body)) {
+    const blob = identity(record)
+    if (rejected(blob)) continue
+    const unit = textOf(record.unit).toLowerCase()
+    if (kind === 'temperature' && (/humidity|%|rh|ppm|percent/.test(`${blob} ${unit}`))) continue
+    if (kind === 'humidity' && (/temperature|\btemp\b|ppm|cel|celsius/.test(`${blob} ${unit}`))) continue
+    const reading = readingFrom(record, now, kind === 'temperature' ? 'Cel' : '%')
+    if (!reading) continue
+    if (kind === 'temperature' && !plausibleTemp(reading.value)) continue
+    if (kind === 'humidity' && !plausibleHumidity(reading.value)) continue
+    chosen = newer(chosen, reading)
+  }
+  return chosen
+}
+
+function blank(note: string | null): Telemetry {
+  return {
+    celsius: null,
+    humidityPercent: null,
+    recordedAt: null,
+    offline: true,
+    temperature: null,
+    humidity: null,
+    temperatureNote: note,
+    humidityNote: note,
+    co: null,
+    coNote: 'No CO sensor yet.',
   }
 }
 
 async function pull(current: PullConfig, component: string) {
   const url = new URL('/api/v1/space/readings/latest', current.base)
-  url.searchParams.set('device_id', current.device)
+  if (current.device) url.searchParams.set('device_id', current.device)
   url.searchParams.set('component', component)
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${current.token}`, accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
   })
   const text = await response.text()
   if (current.token && text.includes(current.token)) return { status: response.status, body: null as unknown }
@@ -77,53 +258,49 @@ async function pull(current: PullConfig, component: string) {
   }
 }
 
-export async function readTelemetry() {
+function noteFor(status: number, reading: SensorReading | null, kind: 'temperature' | 'humidity', message: string) {
+  if (status === 401) return 'Piqo refused the sensor token.'
+  if (status === 403) return kind === 'humidity' ? 'This token cannot read humidity.' : 'This token cannot read temperature.'
+  if (message && status >= 400) return message.slice(0, 160)
+  if (!reading) return kind === 'humidity' ? 'No humidity reading.' : 'No temperature reading.'
+  if (reading.stale) return 'Sensor offline'
+  return null
+}
+
+function errorMessage(body: unknown) {
+  if (!isRecord(body) || !isRecord(body.error)) return ''
+  return typeof body.error.message === 'string' ? body.error.message : ''
+}
+
+export async function readTelemetry(now = Date.now()): Promise<Telemetry> {
   const current = config()
-  const now = Date.now()
-  if (!current.token) {
-    return {
-      temperature: null,
-      humidity: null,
-      temperatureNote: 'No Piqo token on this server.',
-      humidityNote: 'No Piqo token on this server.',
-      co: null,
-      coNote: 'No CO sensor yet.',
-    }
-  }
+  if (!current.token) return blank('No Piqo token on this server.')
   let temperature: SensorReading | null = null
-  let temperatureNote: string | null = null
   let humidity: SensorReading | null = null
-  let humidityNote = humidityBlocked
+  let temperatureNote: string | null = null
+  let humidityNote: string | null = null
   try {
-    const pulled = await pull(current, current.temperature)
-    const records = (pulled.body as { records?: Record<string, unknown>[] } | null)?.records
-    temperature = readingFrom(records?.[0], now)
-    if (pulled.status === 401) temperatureNote = 'Piqo refused the sensor token.'
-    else if (!temperature) temperatureNote = 'No temperature reading.'
+    const [tempPull, humidPull] = await Promise.all([
+      pull(current, current.temperature),
+      pull(current, current.humidity),
+    ])
+    const fromTemp = parseReadings(tempPull.body, now, 'temperature')
+    const fromHumid = parseReadings(humidPull.body, now, 'humidity')
+    temperature = fromTemp.temperature
+    humidity = fromHumid.humidity ?? fromTemp.humidity
+    temperatureNote = noteFor(tempPull.status, temperature, 'temperature', errorMessage(tempPull.body).includes(current.token) ? '' : errorMessage(tempPull.body))
+    humidityNote = noteFor(humidPull.status, humidity, 'humidity', errorMessage(humidPull.body).includes(current.token) ? '' : errorMessage(humidPull.body))
   } catch (error) {
-    temperatureNote = safeError(error, current.token)
+    const message = safeError(error, current.token)
+    temperatureNote = message
+    humidityNote = message
   }
-  if (!humidityBlocked) {
-    try {
-      const pulled = await pull(current, current.humidity)
-      const records = (pulled.body as { records?: Record<string, unknown>[] } | null)?.records
-      const message = (pulled.body as { error?: { message?: string } } | null)?.error?.message ?? ''
-      if (pulled.status === 200) {
-        humidity = readingFrom(records?.[0], now)
-        humidityNote = humidity ? null : 'No humidity reading.'
-      } else if (pulled.status === 403) {
-        humidityBlocked = 'This token cannot read humidity.'
-        humidityNote = humidityBlocked
-      } else if (message && !message.includes(current.token)) {
-        humidityNote = message.slice(0, 160)
-      } else {
-        humidityNote = 'Humidity is not available on this token.'
-      }
-    } catch (error) {
-      humidityNote = safeError(error, current.token)
-    }
-  }
+  const recordedAt = temperature?.recordedAt ?? humidity?.recordedAt ?? null
   return {
+    celsius: temperature?.value ?? null,
+    humidityPercent: humidity?.value ?? null,
+    recordedAt,
+    offline: !temperature || temperature.stale,
     temperature,
     humidity,
     temperatureNote,
