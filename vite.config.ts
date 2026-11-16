@@ -1,12 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { mcpPlugin } from './mcp/plugin'
-import { piqoPlugin } from './mcp/piqo-plugin'
+import { apiDevPlugin } from './mcp/api-plugin'
 
-// Project Pages serves the built app at /sauna-v1/. Dev stays at /.
+function siteBase(command: 'build' | 'serve') {
+  const configured = process.env.VITE_BASE?.trim()
+  if (configured) return configured.endsWith('/') ? configured : `${configured}/`
+  // Vercel sets VERCEL=1. GitHub Pages does not, so its build stays at /sauna-v1/.
+  if (process.env.VERCEL) return '/'
+  return command === 'build' ? '/sauna-v1/' : '/'
+}
+
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/sauna-v1/' : '/',
-  plugins: [react(), mcpPlugin(), piqoPlugin()],
+  base: siteBase(command),
+  plugins: [react(), ...(command === 'serve' ? [mcpPlugin(), apiDevPlugin()] : [])],
   server: {
     host: true,
     port: 5173,

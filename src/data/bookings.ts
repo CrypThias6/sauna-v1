@@ -3,7 +3,7 @@
  * Every visit stays on its day, including today's first one.
  * Real SimplyBook rows, once accepted, replace this book for the grid.
  */
-import { bookingSource, liveVisitsOn } from './simplybook'
+import { bookingSource, liveVisitsOn } from './simplybook.js'
 export type Visit = {
   id: string
   time: string
@@ -153,8 +153,8 @@ const BOOK: Record<number, Draft[]> = {
   31: [['12:30', 75, 'Big', 'Midday', 4]],
 }
 
-export function visitsOn(year: number, monthIndex: number, day: number): Visit[] {
-  if (bookingSource() === 'simplybook') return liveVisitsOn(year, monthIndex, day)
+/** The preview book only. Ignores a SimplyBook source switch, so the server mock stays stable. */
+export function previewVisitsOn(year: number, monthIndex: number, day: number): Visit[] {
   const drafts = BOOK[day] ?? []
   return drafts.map((draft, index) => {
     const [time, minutes, room, name, people] = draft
@@ -167,6 +167,11 @@ export function visitsOn(year: number, monthIndex: number, day: number): Visit[]
       people,
     }
   })
+}
+
+export function visitsOn(year: number, monthIndex: number, day: number): Visit[] {
+  if (bookingSource() === 'simplybook') return liveVisitsOn(year, monthIndex, day)
+  return previewVisitsOn(year, monthIndex, day)
 }
 
 export function spanLabel(time: string, minutes: number) {

@@ -1,3 +1,7 @@
+/**
+ * Not mounted. The console now talks to /api, including during `npm run dev`.
+ * This file is the old Vite middleware. Do not start its scheduler.
+ */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin, PreviewServer, ViteDevServer } from 'vite'
 import { sensor, staffAction, startScheduler, status, syncBook } from '../server/piqo'

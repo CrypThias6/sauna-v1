@@ -1,4 +1,7 @@
 /**
+ * Retired. The token and the schedule now live in src/server and /api.
+ * This module is not mounted. Do not import it from the page.
+ *
  * Holds the Piqo token on the machine that runs Vite.
  * The browser only talks to /piqo/* on this same origin.
  * Actions are not sent: Piqo has not published an address for them,

@@ -29,6 +29,10 @@ export type Settings = {
   outdoorOff: string
   /** Preferred outdoor colour. The saved Piqo action is still warm white. */
   outdoorColor: string
+  /** Preferred glow colour. Not sent until Piqo accepts a colour. */
+  glowColor: string
+  /** Minutes between gentle flashes during a booking. */
+  flashMin: number
 }
 
 const KEY = 'sauna-settings'
@@ -51,6 +55,8 @@ const defaults: Settings = {
   outdoorOn: '20:30',
   outdoorOff: '23:30',
   outdoorColor: '#ffc58f',
+  glowColor: '#ffd7a8',
+  flashMin: 15,
 }
 
 let current = read()
@@ -104,6 +110,8 @@ function read(): Settings {
       outdoorOn: clock(parsed.outdoorOn, defaults.outdoorOn),
       outdoorOff: clock(parsed.outdoorOff, defaults.outdoorOff),
       outdoorColor: color(parsed.outdoorColor, defaults.outdoorColor),
+      glowColor: color(parsed.glowColor, defaults.glowColor),
+      flashMin: clamp(parsed.flashMin, 5, 60, defaults.flashMin),
       name: typeof parsed.name === 'string' ? parsed.name : defaults.name,
     }
   } catch {

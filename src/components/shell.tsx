@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { heatHex } from '../lib/heat'
 import { RemoteLink } from '../mcp/link'
 import { useSauna } from '../state/store'
@@ -9,10 +9,13 @@ import { Controls } from './controls'
 import { Piqo } from './piqo'
 import { Cameras } from './cameras'
 import { Telemetry } from './telemetry'
+import { sessionGate, subscribeSession } from '../lib/session'
+import { Login } from './login'
 import { ConnectPanel, SettingsPanel, Toasts } from './panels'
 
 export function Shell() {
   const { saunas, index } = useSauna()
+  const gate = useSyncExternalStore(subscribeSession, sessionGate, () => 'unknown' as const)
   const sauna = saunas[index]
   const [panel, setPanel] = useState<null | 'settings' | 'connect'>(null)
   const bridge = useRef<Bridge>({
@@ -60,6 +63,7 @@ export function Shell() {
       </div>
       {panel === 'settings' && <SettingsPanel onClose={() => setPanel(null)} />}
       {panel === 'connect' && <ConnectPanel onClose={() => setPanel(null)} />}
+      {gate === 'needed' ? <Login /> : null}
     </div>
   )
 }
