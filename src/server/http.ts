@@ -16,7 +16,8 @@ import {
   staffConfigured,
 } from './auth.js'
 import type { Booking } from './booking.js'
-import { bookingsSource } from './bookings.js'
+import { applyWebhookBooking, loadDay, loadMonth, webhookLooksCancelled } from './bookings.js'
+import { simplyBookConfigured } from './simplybook.js'
 import { isPiqoAction, lightOf, runPiqoAction } from './piqo.js'
 import { CATCH_UP_MS, bookingDates, runTick } from './schedule.js'
 import { normalizeSettings } from './settings.js'
@@ -89,15 +90,12 @@ async function getTelemetry(request: Request) {
 async function getBookings(request: Request) {
   const denied = requireStaff(request)
   if (denied) return denied
-  const date = new URL(request.url).searchParams.get('date') ?? ''
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'Use date=YYYY-MM-DD.' }, 400)
-  try {
-    const bookings = (await bookingsSource().listDay(date)).filter((booking) => booking.status !== 'cancelled')
-    return json({ date, bookings })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'not configured') return json({ error: 'not configured' }, 503)
-    return json({ error: 'Bookings are unavailable.' }, 503)
-  }
+  const url = new URL(request.url)
+  const month = url.searchParams.get('month') ?? ''
+  const date = url.searchParams.get('date') ?? ''
+  if (!month && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'Use date=YYYY-MM-DD or month=YYYY-MM.' }, 400)
+  const loaded = month ? await loadMonth(month) : await loadDay(date)
+  return json({ date: date || null, month: month || null, connected: loaded.connected, bookings: loaded.bookings, error: loaded.error })
 }
 
 async function getSettings(request: Request) {
@@ -191,14 +189,14 @@ async function postTick(request: Request) {
     return json({ error: 'Settings are unavailable.' }, 500)
   }
   const bookings: Booking[] = []
-  try {
-    const source = bookingsSource()
-    for (const date of bookingDates(now, CATCH_UP_MS, zone)) {
-      bookings.push(...(await source.listDay(date)))
+  if (simplyBookConfigured()) {
+    try {
+      for (const date of bookingDates(now, CATCH_UP_MS, zone)) {
+        bookings.push(...(await loadDay(date)).bookings)
+      }
+    } catch {
+      return json({ error: 'Bookings are unavailable.' }, 503)
     }
-  } catch (error) {
-    if (error instanceof Error && error.message === 'not configured') return json({ error: 'not configured' }, 503)
-    return json({ error: 'Bookings are unavailable.' }, 503)
   }
   try {
     const result = await runTick({
@@ -241,6 +239,29 @@ async function getLog(request: Request) {
   }
 }
 
+async function postWebhook(request: Request) {
+  const secret = process.env.SIMPLYBOOK_WEBHOOK_SECRET?.trim() ?? ''
+  const given = new URL(request.url).searchParams.get('secret') ?? ''
+  if (!secret || !simplyBookConfigured()) return json({ error: 'not configured' }, 503)
+  if (!sameSecret(given, secret)) return json({ error: 'Unauthorized.' }, 401)
+  let body: unknown
+  try {
+    body = await readBody(request)
+  } catch {
+    return json({ error: 'Bad request.' }, 400)
+  }
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+  const id = String(record.booking_id ?? record.bookingId ?? '').trim()
+  if (!id) return json({ error: 'Bad request.' }, 400)
+  const notice = String(record.notification_type ?? record.notificationType ?? '')
+  try {
+    await applyWebhookBooking(id, webhookLooksCancelled(notice))
+  } catch {
+    return json({ error: 'Bookings are unavailable.' }, 503)
+  }
+  return json({ ok: true })
+}
+
 const routes: Record<string, Partial<Record<string, (request: Request) => Promise<Response>>>> = {
   '/api/login': { POST: postLogin },
   '/api/logout': { POST: postLogout },
@@ -250,6 +271,7 @@ const routes: Record<string, Partial<Record<string, (request: Request) => Promis
   '/api/action': { POST: postAction },
   '/api/tick': { POST: postTick },
   '/api/log': { GET: getLog },
+  '/api/simplybook-webhook': { POST: postWebhook },
 }
 
 export function handle(request: Request): Promise<Response> {

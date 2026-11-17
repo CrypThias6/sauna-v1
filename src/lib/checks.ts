@@ -1,8 +1,9 @@
-import { visitsOn, type Visit } from '../data/bookings'
-import { flueLabel, fluePhase, temperatureSamples } from './flue'
+import type { Party } from './people'
+import { peopleInRoom } from './people'
 import { formatTemp } from './format'
 import type { Settings } from './settings'
 import type { Sauna } from '../types'
+import type { SensorLink } from './sensor-status'
 
 export type CheckAction = 'lock' | 'heater' | 'lights'
 
@@ -12,182 +13,85 @@ export type Check = {
   value: string
   ok: boolean
   action?: CheckAction
-  /** Stable while this condition holds. A new key is worth one alert. */
   watch: string | null
   alert: string | null
 }
 
-type Due = {
-  on: boolean
-  booked: Visit | null
-  soon: Visit | null
-  soonMin: number
+export type LiveCheck = {
+  celsius: number | null
+  error: string | null
+  humidity: number | null
+  humidityError: string | null
+  link: SensorLink | null
 }
 
-function windowOf(visit: Visit) {
-  const [hour, minute] = visit.time.split(':').map(Number)
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null
-  const start = hour * 60 + minute
-  return { start, end: start + visit.minutes }
+function row(id: string, label: string, value: string, ok: boolean, watch: string | null, alert: string | null): Check {
+  return { id, label, value, ok, watch: ok ? watch : watch, alert: ok ? null : alert }
 }
 
-function dueFor(sauna: Sauna, now: number): Due {
-  const date = new Date(now)
-  const minute = date.getHours() * 60 + date.getMinutes()
-  const visits = visitsOn(date.getFullYear(), date.getMonth(), date.getDate()).filter(
-    (visit) => visit.status !== 'cancelled' && (visit.room === '' || visit.room === sauna.name),
-  )
-  let booked: Visit | null = null
-  let soon: Visit | null = null
-  let soonMin = Infinity
-  for (const visit of visits) {
-    const span = windowOf(visit)
-    if (!span) continue
-    if (minute >= span.start && minute < span.end) booked = visit
-    else if (span.start > minute && span.start - minute < soonMin) {
-      soon = visit
-      soonMin = span.start - minute
-    }
-  }
-  return { on: booked != null, booked, soon, soonMin }
+function current(bookings: Party[], now: number, room: string) {
+  return bookings.filter((booking) => {
+    if (booking.status === 'cancelled' || booking.status === 'canceled') return false
+    const start = Date.parse(booking.start)
+    const end = Date.parse(booking.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || now < start || now >= end) return false
+    if (booking.room && booking.room !== room) return false
+    return true
+  })
 }
 
-function row(
-  id: string,
-  label: string,
-  value: string,
-  ok: boolean,
-  watch: string | null,
-  alert: string | null,
-  action?: CheckAction,
-): Check {
-  return { id, label, value, ok, watch: ok ? watch : `${id}:${watch ?? 'bad'}`, alert: ok ? alert : alert, action }
-}
-
-/** What the owner can scan for this room. Failures are the alerts she turned on. The temp row is the live sensor, never the 3D preview. */
+/** Staff checklist. Sensor and humidity come from Piqo. People come from the booking. No demo numbers. */
 export function roomChecks(
   sauna: Sauna,
-  settings: Settings,
+  _settings: Settings,
   now: number,
-  live: { celsius: number | null; error: string | null } = { celsius: null, error: null },
+  live: LiveCheck = { celsius: null, error: null, humidity: null, humidityError: null, link: null },
+  book: { connected: boolean; bookings: Party[] } = { connected: false, bookings: [] },
 ): Check[] {
-  const due = dueFor(sauna, now)
-  const sessionOn = due.on
-  const people = sauna.occupants.length
-  const party = due.booked?.people ?? 0
-  const lightsOn = sauna.lights.filter((light) => light.on).length
-  const air = live.celsius == null ? null : `${formatTemp(live.celsius)}°`
-  const target = Math.round(sauna.targetC)
   const checks: Check[] = []
+  const sensorValue =
+    live.link === 'online' ? 'Online' : live.link === 'offline' ? 'Offline' : live.link === 'unreachable' ? "Can't reach Piqo" : '—'
+  checks.push(row('sensor', 'Wi-Fi', sensorValue, live.link === 'online', live.link, live.link === 'online' ? null : sensorValue))
 
-  const tooHot = air != null && settings.heat && (live.celsius ?? 0) > settings.tooHot
-  const under = air != null && settings.heat && sessionOn && (live.celsius ?? 0) < sauna.targetC - settings.underBy
+  const humidOk = live.humidity != null && live.humidity >= 0 && live.humidity <= 100
   checks.push(
     row(
-      'temp',
-      'Temp',
-      air == null ? `— · ${live.error || 'Sensor offline'}` : tooHot ? `${air} · too hot` : under ? `${air} · under ${target}°` : `${air} · target ${target}°`,
-      air != null && !tooHot && !under,
-      tooHot ? 'hot' : under ? 'under' : null,
-      air == null ? null : tooHot ? `${air} · too hot` : under ? `${air} · under target` : null,
+      'humidity',
+      'Humidity',
+      live.humidity == null ? `— · ${live.humidityError || 'No humidity reading.'}` : `${live.humidity}%`,
+      humidOk,
+      humidOk ? null : 'humidity',
+      humidOk ? null : 'Humidity needs a look',
     ),
   )
 
-  const locked = sauna.lock === 'locked'
-  const lockedOut = settings.door && settings.doorLockedSession && sessionOn && locked
-  const leftOpen = settings.door && settings.doorOpenIdle && !sessionOn && (sauna.doorOpen || !locked)
-  let doorValue = sauna.doorOpen ? 'Open' : locked ? 'Locked' : 'Unlocked'
-  if (lockedOut) doorValue = 'Locked · session on'
-  else if (leftOpen) doorValue = sauna.doorOpen ? 'Open · no session' : 'Unlocked · no session'
-  else if (sessionOn && !locked) doorValue = sauna.doorOpen ? 'Open · unlocked' : 'Shut · unlocked'
-  checks.push(
-    row(
-      'door',
-      'Door',
-      doorValue,
-      !lockedOut && !leftOpen,
-      lockedOut ? 'locked' : leftOpen ? 'idle' : null,
-      lockedOut ? 'Door locked during a session' : leftOpen ? 'Door not secured' : null,
-      'lock',
-    ),
-  )
+  const air = live.celsius == null ? null : `${formatTemp(live.celsius)}°`
+  checks.push(row('temp', 'Temp', air == null ? `— · ${live.error || 'No temperature reading.'}` : air, air != null, null, null))
 
-  const phase = flueLabel(fluePhase(sauna.heaterOn, sauna.airC, settings.safeC, temperatureSamples(sauna.id)))
-  const wasted = settings.heat && settings.leftOn && !sessionOn && people === 0 && sauna.heaterOn
-  const cold = settings.heat && sessionOn && !sauna.heaterOn && sauna.airC < sauna.targetC - settings.underBy
-  checks.push(
-    row(
-      'heater',
-      'Heater',
-      wasted ? 'On · room is empty' : cold ? 'Off · not at temperature' : sauna.heaterOn ? phase : 'Off',
-      !wasted && !cold,
-      wasted ? 'empty' : cold ? 'cold' : null,
-      wasted ? 'Heater on in an empty room' : cold ? 'Heater off during a session' : null,
-      'heater',
-    ),
-  )
+  const here = book.connected ? current(book.bookings, now, sauna.name) : []
+  const session = here[0]
+  let sessionValue = 'Booking calendar not connected'
+  if (book.connected) {
+    if (!session) sessionValue = 'No booking'
+    else {
+      const remain = Math.max(0, Math.round((Date.parse(session.end) - now) / 60_000))
+      sessionValue = session.people == null ? `Booking · ${remain} min` : `${remain} min`
+    }
+  }
+  checks.push(row('session', 'Session', sessionValue, true, null, null))
 
-  const soon = settings.session && !sessionOn && due.soon != null && due.soonMin <= settings.leadMin
-  const minute = new Date(now).getHours() * 60 + new Date(now).getMinutes()
-  const remain = due.booked ? (windowOf(due.booked)?.end ?? minute) - minute : 0
-  let sessionValue = 'No booking'
-  if (due.booked) sessionValue = remain <= 0 ? 'Ending' : `${due.booked.name} · ${remain} min`
-  else if (soon && due.soon) sessionValue = `Starts ${due.soon.time}`
-  checks.push(
-    row(
-      'session',
-      'Session',
-      sessionValue,
-      true,
-      soon && due.soon ? `soon:${due.soon.id}` : null,
-      soon && due.soon ? `Session at ${due.soon.time}` : null,
-    ),
-  )
-
-  const over = sessionOn && party > sauna.capacity
+  const people = book.connected ? peopleInRoom(book.bookings, now, sauna.name) : null
   checks.push(
     row(
       'people',
       'People',
-      over
-        ? `${party} of ${sauna.capacity} · over`
-        : sessionOn
-          ? `${party} of ${sauna.capacity} · booked`
-          : 'No booking',
-      !over,
-      over ? 'over' : null,
-      over ? 'Over capacity' : null,
+      !book.connected ? '—' : people == null ? '—' : String(people),
+      book.connected && people != null,
+      null,
+      null,
     ),
   )
 
-  const low = settings.water && sauna.water === 'low'
-  checks.push(row('water', 'Water', low ? 'Low' : 'Ok', !low, low ? 'low' : null, low ? 'Water low' : null))
-
-  const lightsWasted = settings.leftOn && !sessionOn && people === 0 && lightsOn > 0
-  const lightsDark = settings.session && sessionOn && lightsOn === 0
-  checks.push(
-    row(
-      'lights',
-      'Lights',
-      lightsWasted ? 'On · room is empty' : lightsDark ? 'Off · session on' : lightsOn > 0 ? `${lightsOn} on` : 'Off',
-      !lightsWasted && !lightsDark,
-      lightsWasted ? 'on' : lightsDark ? 'off' : null,
-      lightsWasted ? 'Lights on in an empty room' : lightsDark ? 'Lights off during a session' : null,
-      'lights',
-    ),
-  )
-
-  const co2High = settings.co2On && sauna.co2 > settings.co2Max
-  checks.push(
-    row(
-      'co2',
-      'CO₂',
-      co2High ? `${sauna.co2} ppm · high` : `${sauna.co2} ppm`,
-      !co2High,
-      co2High ? 'high' : null,
-      co2High ? 'CO₂ high' : null,
-    ),
-  )
-
+  checks.push(row('co', 'CO', '— No CO sensor', true, null, null))
   return checks
 }

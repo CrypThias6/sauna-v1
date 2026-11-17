@@ -4,7 +4,7 @@ export type Booking = {
   /** ISO-8601 with the Auckland offset, for example 2026-11-16T18:00:00+13:00. */
   start: string
   end: string
-  people: number
+  people: number | null
   status: 'confirmed' | 'cancelled'
   name?: string
 }

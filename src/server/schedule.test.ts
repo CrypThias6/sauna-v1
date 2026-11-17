@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MockBookings } from './bookings.js'
+import { previewBookings } from './preview-book.js'
 import { dueEvents, runTick, type ScheduleEvent, type ScheduleSettings, type SentLog } from './schedule.js'
 
 const settings: ScheduleSettings = {
@@ -28,7 +28,7 @@ function memoryLog(): SentLog & { reads: number; writes: number; keys: string[] 
 
 describe('16 Nov mock booking', () => {
   it('lists the evening booking in Auckland daylight time', async () => {
-    const bookings = await new MockBookings().listDay('2026-11-16')
+    const bookings = previewBookings('2026-11-16')
     expect(bookings).toEqual([
       {
         id: '2026-11-16-0',
@@ -43,7 +43,7 @@ describe('16 Nov mock booking', () => {
   })
 
   it('fires each light mark once, including a second tick in the same minute', async () => {
-    const bookings = await new MockBookings().listDay('2026-11-16')
+    const bookings = previewBookings('2026-11-16')
     const id = bookings[0].id
     const expected: { at: string; action: ScheduleEvent['action']; key: string }[] = [
       { at: '2026-11-16T18:00:00+13:00', action: 'Glow on', key: `2026-11-16-${id}:glow:on` },
@@ -103,7 +103,7 @@ describe('16 Nov mock booking', () => {
 
 describe('catch-up', () => {
   it('fires a mark from the last 5 minutes and skips anything older', async () => {
-    const bookings = await new MockBookings().listDay('2026-11-16')
+    const bookings = previewBookings('2026-11-16')
     const glow = `2026-11-16-${bookings[0].id}:glow:on`
     const flash = `2026-11-16-${bookings[0].id}:flash:15`
 
@@ -140,7 +140,7 @@ describe('catch-up', () => {
   })
 
   it('does not read the sent log when nothing is due', async () => {
-    const bookings = await new MockBookings().listDay('2026-11-16')
+    const bookings = previewBookings('2026-11-16')
     const log = memoryLog()
     const result = await runTick({
       now: new Date('2026-11-16T17:00:00+13:00'),
@@ -159,7 +159,7 @@ describe('catch-up', () => {
 
 describe('schedule inputs', () => {
   it('ignores a cancelled booking', async () => {
-    const bookings = await new MockBookings().listDay('2026-11-16')
+    const bookings = previewBookings('2026-11-16')
     const cancelled = { ...bookings[0], id: 'cancelled-1', status: 'cancelled' as const }
     const due = dueEvents({
       now: new Date('2026-11-16T18:00:00+13:00'),
@@ -171,7 +171,7 @@ describe('schedule inputs', () => {
   })
 
   it('uses the flash interval from settings', async () => {
-    const bookings = await new MockBookings().listDay('2026-11-16')
+    const bookings = previewBookings('2026-11-16')
     const due = dueEvents({
       now: new Date('2026-11-16T19:30:00+13:00'),
       bookings,

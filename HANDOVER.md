@@ -133,7 +133,7 @@ The cookie is `sauna_session`, HttpOnly, Secure, SameSite=Lax, Path=/, about 12 
 ## What is stubbed
 
 - **Receipt follow-up.** A successful POST comes back `pending`. The console treats that receipt as sent. It does not poll `GET <link>?receipt=`.
-- **SimplyBook.** `SimplyBookBookings` in `src/server/bookings.ts` throws `not configured`. When the HTTP call exists, its body goes through `acceptBookings()` in `src/data/simplybook.ts`. Set `BOOKINGS_SOURCE=simplybook` plus `SIMPLYBOOK_COMPANY`, `SIMPLYBOOK_API_KEY`, and `SIMPLYBOOK_SECRET`. Cancelled bookings are ignored.
+- **SimplyBook.** Set `BOOKINGS_SOURCE=simplybook` plus `SIMPLYBOOK_COMPANY`, `SIMPLYBOOK_USER_LOGIN`, and one of `SIMPLYBOOK_USER_PASSWORD`, `SIMPLYBOOK_USER_KEY`, or `SIMPLYBOOK_API_KEY`. Point the webhook at `POST /api/simplybook-webhook?secret=` with `SIMPLYBOOK_WEBHOOK_SECRET`. Until those are set, the calendar says it is not connected and shows no sample bookings.
 - **Humidity.** The same SHT4x is requested (`sht4x.09c38e29.humidity`). If Piqo refuses that component, the row says so and stays blank. It does not show 0.
 - **CO.** No sensor. The row is a placeholder.
 - **Colour.** Outdoor and glow colours are stored. The actions are still the named buttons. Piqo is not sent a colour.

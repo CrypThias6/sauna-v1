@@ -4,6 +4,23 @@ A dark watch screen for two smart saunas. One view for temperature, heater, ligh
 
 Telemetry on screen is a **preview**. Nothing here is wired to hardware.
 
+## SimplyBook
+
+Set these on the server (Vercel → Settings → Environment Variables). Do not prefix them with `VITE_`.
+
+| Name | What it is |
+| --- | --- |
+| `BOOKINGS_SOURCE` | `simplybook` once the names below are filled. Otherwise the calendar says it is not connected. |
+| `SIMPLYBOOK_COMPANY` | Company login. |
+| `SIMPLYBOOK_API_KEY` | API key. Used as the auth password when no user password or user key is set. |
+| `SIMPLYBOOK_USER_LOGIN` | Admin user login. Falls back to the company login. |
+| `SIMPLYBOOK_USER_KEY` | API user key. Used as the password when `SIMPLYBOOK_USER_PASSWORD` is empty. |
+| `SIMPLYBOOK_USER_PASSWORD` | Admin user password. Preferred over the key and the API key. |
+| `SIMPLYBOOK_WEBHOOK_SECRET` | Shared secret. SimplyBook calls `POST /api/simplybook-webhook?secret=...`. |
+| `SIMPLYBOOK_API_URL` | Defaults to `https://user-api-v2.simplybook.me`. |
+
+The server signs in with `POST /admin/auth`, then reads `GET /admin/bookings`. A webhook only carries a booking id, so the server fetches `GET /admin/bookings/{id}`.
+
 ## Run
 
 ```bash

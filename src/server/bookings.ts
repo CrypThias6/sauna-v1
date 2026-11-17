@@ -1,70 +1,81 @@
 /**
- * BookingsSource. MockBookings reads the preview book.
- * SimplyBookBookings throws until Tim wires the HTTP call, then the body goes through acceptBookings().
+ * Bookings for the schedule and the calendar.
+ * SimplyBook when it is configured. Otherwise nothing — no sample month.
  */
-import { previewVisitsOn, type Visit } from '../data/bookings.js'
-import { acceptBookings, liveVisitsOn } from '../data/simplybook.js'
-import type { Booking, BookingsSource } from './booking.js'
-import { formatZoned, siteZone, wallToInstant } from './time.js'
+import type { Booking } from './booking.js'
+import { readBookingCache, writeBookingCache } from './store.js'
+import { fetchSimplyBooking, fetchSimplyDay, fetchSimplyMonth, mapSimplyBooking, simplyBookConfigured } from './simplybook.js'
 
-function visitToBooking(date: string, visit: Visit, zone: string): Booking | null {
-  if (visit.room !== 'Small' && visit.room !== 'Big') return null
-  if (visit.status === 'cancelled' || visit.status === 'no_show') return null
-  if (!visit.time.includes(':') || visit.minutes <= 0) return null
-  const [hour, minute] = visit.time.split(':')
-  if (!hour || minute == null) return null
-  const start = wallToInstant(date, `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`, zone)
-  if (!start) return null
-  const end = new Date(start.getTime() + visit.minutes * 60_000)
-  return {
-    id: visit.id,
-    room: visit.room,
-    start: formatZoned(start, zone),
-    end: formatZoned(end, zone),
-    people: visit.people,
-    status: 'confirmed',
-    name: visit.name || undefined,
+const CACHE_MS = 3 * 60 * 1000
+
+export type BookingLoad = {
+  connected: boolean
+  bookings: Booking[]
+  error: string | null
+}
+
+function onDay(bookings: Booking[], date: string) {
+  return bookings.filter((booking) => booking.status !== 'cancelled' && booking.start.startsWith(date))
+}
+
+function inMonth(bookings: Booking[], month: string) {
+  return bookings.filter((booking) => booking.status !== 'cancelled' && booking.start.startsWith(month))
+}
+
+async function cached(maxAge: number) {
+  const cache = await readBookingCache()
+  if (!cache) return null
+  if (Date.now() - cache.at > maxAge) return null
+  return cache.bookings
+}
+
+export async function loadDay(date: string): Promise<BookingLoad> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { connected: simplyBookConfigured(), bookings: [], error: null }
+  if (!simplyBookConfigured()) return { connected: false, bookings: [], error: null }
+  const fresh = await cached(CACHE_MS)
+  if (fresh) return { connected: true, bookings: onDay(fresh, date), error: null }
+  try {
+    const bookings = await fetchSimplyDay(date)
+    const previous = (await readBookingCache())?.bookings ?? []
+    const rest = previous.filter((booking) => !booking.start.startsWith(date))
+    await writeBookingCache([...rest, ...bookings])
+    return { connected: true, bookings, error: null }
+  } catch {
+    const stale = (await readBookingCache())?.bookings
+    if (stale) return { connected: true, bookings: onDay(stale, date), error: null }
+    return { connected: true, bookings: [], error: 'Bookings are unavailable.' }
   }
 }
 
-export class MockBookings implements BookingsSource {
-  async listDay(date: string): Promise<Booking[]> {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return []
-    const [year, month, day] = date.split('-').map(Number)
-    const zone = siteZone()
-    return previewVisitsOn(year, month - 1, day).flatMap((visit) => {
-      const booking = visitToBooking(date, visit, zone)
-      return booking ? [booking] : []
-    })
+export async function loadMonth(month: string): Promise<BookingLoad> {
+  if (!/^\d{4}-\d{2}$/.test(month)) return { connected: simplyBookConfigured(), bookings: [], error: null }
+  if (!simplyBookConfigured()) return { connected: false, bookings: [], error: null }
+  const fresh = await cached(CACHE_MS)
+  if (fresh) return { connected: true, bookings: inMonth(fresh, month), error: null }
+  try {
+    const bookings = await fetchSimplyMonth(month)
+    await writeBookingCache(bookings)
+    return { connected: true, bookings, error: null }
+  } catch {
+    const stale = (await readBookingCache())?.bookings
+    if (stale) return { connected: true, bookings: inMonth(stale, month), error: null }
+    return { connected: true, bookings: [], error: 'Bookings are unavailable.' }
   }
 }
 
-export class SimplyBookBookings implements BookingsSource {
-  async listDay(date: string): Promise<Booking[]> {
-    const raw = await pullDay(date)
-    acceptBookings(raw)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return []
-    const [year, month, day] = date.split('-').map(Number)
-    const zone = siteZone()
-    return liveVisitsOn(year, month - 1, day).flatMap((visit) => {
-      const booking = visitToBooking(date, visit, zone)
-      return booking ? [booking] : []
-    })
+export async function applyWebhookBooking(id: string, cancelled: boolean) {
+  const previous = (await readBookingCache())?.bookings ?? []
+  if (cancelled) {
+    await writeBookingCache(previous.filter((booking) => booking.id !== id))
+    return
   }
+  const booking = await fetchSimplyBooking(id)
+  const rest = previous.filter((item) => item.id !== id)
+  await writeBookingCache(booking ? [...rest, booking] : rest)
 }
 
-async function pullDay(_date: string): Promise<unknown> {
-  const company = process.env.SIMPLYBOOK_COMPANY?.trim() ?? ''
-  const apiKey = process.env.SIMPLYBOOK_API_KEY?.trim() ?? ''
-  const secret = process.env.SIMPLYBOOK_SECRET?.trim() ?? ''
-  if (!company || !apiKey || !secret) throw new Error('not configured')
-  // TODO(Tim): request this civil day from SimplyBook and return the raw body.
-  // Do not guess the path. acceptBookings() above is the parser.
-  throw new Error('not configured')
+export function webhookLooksCancelled(notice: string) {
+  return /cancel/i.test(notice)
 }
 
-export function bookingsSource(): BookingsSource {
-  const name = (process.env.BOOKINGS_SOURCE || 'mock').trim().toLowerCase()
-  if (name === 'simplybook') return new SimplyBookBookings()
-  return new MockBookings()
-}
+export { mapSimplyBooking }

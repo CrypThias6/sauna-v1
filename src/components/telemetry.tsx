@@ -1,5 +1,7 @@
 import { roomChecks, type Check } from '../lib/checks'
+import { useTodayBook } from '../lib/day-book'
 import { useLiveSensor } from '../lib/sensor'
+import { sensorLink } from '../lib/sensor-status'
 import { useSettings } from '../lib/settings'
 import { useSauna } from '../state/store'
 
@@ -42,17 +44,25 @@ function Row({ check, onPress }: { check: Check; onPress?: () => void }) {
 }
 
 export function Telemetry() {
-  const { saunas, index, now, toggleLock, toggleHeater, toggleLights } = useSauna()
+  const { saunas, index, now } = useSauna()
   const settings = useSettings()
   const sensor = useLiveSensor()
+  const book = useTodayBook()
   const sauna = saunas[index]
-  const checks = roomChecks(sauna, settings, now, { celsius: sensor.celsius, error: sensor.error })
-  const press: Record<string, (() => void) | undefined> = {
-    lock: () => toggleLock(sauna.id),
-    heater: () => toggleHeater(sauna.id),
-    lights: () => toggleLights(sauna.id),
-  }
-
+  const link = sensor.known ? sensorLink({ now, heardAt: sensor.heardAt, reachable: sensor.reachable }) : null
+  const checks = roomChecks(
+    sauna,
+    settings,
+    now,
+    {
+      celsius: sensor.celsius,
+      error: sensor.error,
+      humidity: sensor.humidityPercent,
+      humidityError: sensor.humidityError,
+      link,
+    },
+    { connected: book.connected, bookings: book.bookings },
+  )
   return (
     <section className="block" aria-label="Checklist">
       <div className="block-head">
@@ -62,10 +72,7 @@ export function Telemetry() {
       <ul className="checks">
         {checks.map((check) => (
           <li key={check.id}>
-            <Row
-              check={check}
-              onPress={check.action ? press[check.action] : undefined}
-            />
+            <Row check={check} />
           </li>
         ))}
       </ul>

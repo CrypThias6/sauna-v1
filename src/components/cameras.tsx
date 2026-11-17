@@ -1,22 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { formatClock, formatMin, peopleWord } from '../lib/format'
+import { formatClock } from '../lib/format'
 import { useSauna } from '../state/store'
-import type { CameraZone, Occupant, Sauna } from '../types'
-
-const POSES = [
-  { left: '28%', bottom: '14%', scale: 1 },
-  { left: '46%', bottom: '12%', scale: 0.94 },
-  { left: '64%', bottom: '16%', scale: 1.05 },
-  { left: '38%', bottom: '10%', scale: 0.86 },
-]
-
-function countIn(sauna: Sauna, zone: string) {
-  return sauna.occupants.filter((person) => person.zone === zone)
-}
-
-function placeOf(sauna: Sauna, person: Occupant) {
-  return sauna.slots.find((slot) => slot.id === person.slot)?.place ?? person.zone
-}
+import type { CameraZone, Sauna } from '../types'
 
 function Feed({
   sauna,
@@ -29,7 +14,6 @@ function Feed({
   now: number
   large?: boolean
 }) {
-  const people = countIn(sauna, camera.id)
   return (
     <div className={large ? 'feed feed-lg' : 'feed'} data-zone={camera.id} data-kind={sauna.kind}>
       <div className="feed-top">
@@ -39,25 +23,10 @@ function Feed({
         </span>
         <span>{camera.label}</span>
       </div>
-      {people.map((person, i) => {
-        const pose = POSES[i % POSES.length]
-        return (
-          <span
-            key={person.id}
-            className="silhouette"
-            style={{
-              left: pose.left,
-              bottom: pose.bottom,
-              background: person.towel,
-              transform: `scale(${pose.scale})`,
-            }}
-          />
-        )
-      })}
-      {people.length === 0 && <span className="clear">Clear</span>}
+      <span className="clear">No camera yet</span>
       <div className="feed-bottom">
-        <strong>{people.length}</strong>
-        <span>{peopleWord(people.length)}</span>
+        <strong>—</strong>
+        <span>No count</span>
         <time>{formatClock(now)}</time>
       </div>
     </div>
@@ -68,7 +37,6 @@ function CameraModal({ sauna, cameraId }: { sauna: Sauna; cameraId: string }) {
   const { now, closeCamera, openCamera } = useSauna()
   const closeRef = useRef<HTMLButtonElement>(null)
   const camera = sauna.cameras.find((item) => item.id === cameraId) ?? sauna.cameras[0]
-  const people = countIn(sauna, camera.id)
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -106,38 +74,25 @@ function CameraModal({ sauna, cameraId }: { sauna: Sauna; cameraId: string }) {
             </button>
           </div>
           <p className="modal-count">
-            <strong>{people.length}</strong>
-            <span>{peopleWord(people.length)} in this view</span>
+            <strong>—</strong>
+            <span>No count</span>
           </p>
           <ul className="people-list">
-            {people.length === 0 && <li className="empty">Nobody in this view.</li>}
-            {people.map((person) => (
-              <li key={person.id}>
-                <span className="swatch" style={{ background: person.towel }} />
-                <span>
-                  <strong>{placeOf(sauna, person)}</strong>
-                  <small>In this spot {formatMin(person.zoneSinceMin)}</small>
-                </span>
-                <em>{formatMin(person.sinceMin)}</em>
-              </li>
-            ))}
+            <li className="empty">No camera count yet.</li>
           </ul>
           <div className="film">
-            {sauna.cameras.map((item) => {
-              const count = countIn(sauna, item.id).length
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="film-btn"
-                  data-active={item.id === camera.id}
-                  onClick={() => openCamera(item.id)}
-                >
-                  <span>{item.label}</span>
-                  <strong>{count}</strong>
-                </button>
-              )
-            })}
+            {sauna.cameras.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="film-btn"
+                data-active={item.id === camera.id}
+                onClick={() => openCamera(item.id)}
+              >
+                <span>{item.label}</span>
+                <strong>—</strong>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -158,20 +113,17 @@ export function Cameras() {
         </p>
       </div>
       <div className="cam-row">
-        {sauna.cameras.map((camera) => {
-          const count = countIn(sauna, camera.id).length
-          return (
-            <button
-              key={camera.id}
-              type="button"
-              className="cam"
-              onClick={() => openCamera(camera.id)}
-              aria-label={`${camera.label} camera, ${count} ${peopleWord(count)}. Expand`}
-            >
-              <Feed sauna={sauna} camera={camera} now={now} />
-            </button>
-          )
-        })}
+        {sauna.cameras.map((camera) => (
+          <button
+            key={camera.id}
+            type="button"
+            className="cam"
+            onClick={() => openCamera(camera.id)}
+            aria-label={`${camera.label} camera. Expand`}
+          >
+            <Feed sauna={sauna} camera={camera} now={now} />
+          </button>
+        ))}
       </div>
       {cameraId && <CameraModal sauna={sauna} cameraId={cameraId} />}
     </section>

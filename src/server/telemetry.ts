@@ -218,12 +218,15 @@ export function parseReadings(
   body: unknown,
   now = Date.now(),
   prefer?: 'temperature' | 'humidity',
+  onlyStream?: string,
 ): { temperature: SensorReading | null; humidity: SensorReading | null } {
+  const wanted = onlyStream?.toLowerCase() ?? ''
   let temperature: SensorReading | null = null
   let humidity: SensorReading | null = null
   for (const record of rowsOf(body)) {
     const blob = identity(record)
     if (rejected(blob)) continue
+    if (wanted && blob && !blob.includes(wanted)) continue
     const wantsHumidity = /humidity|\brh\b/.test(blob)
     const wantsTemp = !wantsHumidity && (/temperature|\btemp\b/.test(blob) || Boolean(temperatureUnit(record, blob)))
     if (wantsTemp) {
@@ -236,16 +239,17 @@ export function parseReadings(
       if (reading && plausibleHumidity(reading.value)) humidity = newer(humidity, reading)
     }
   }
-  if (prefer === 'temperature' && !temperature) temperature = fallback(body, now, 'temperature')
-  if (prefer === 'humidity' && !humidity) humidity = fallback(body, now, 'humidity')
+  if (prefer === 'temperature' && !temperature) temperature = fallback(body, now, 'temperature', wanted)
+  if (prefer === 'humidity' && !humidity) humidity = fallback(body, now, 'humidity', wanted)
   return { temperature, humidity }
 }
 
-function fallback(body: unknown, now: number, kind: 'temperature' | 'humidity') {
+function fallback(body: unknown, now: number, kind: 'temperature' | 'humidity', wanted: string) {
   let chosen: SensorReading | null = null
   for (const record of rowsOf(body)) {
     const blob = identity(record)
     if (rejected(blob)) continue
+    if (wanted && blob && !blob.includes(wanted)) continue
     const unit = textOf(record.unit).toLowerCase()
     if (kind === 'temperature' && (/humidity|%|rh|ppm|percent/.test(`${blob} ${unit}`))) continue
     if (kind === 'humidity' && (/temperature|\btemp\b|ppm|cel|celsius/.test(`${blob} ${unit}`))) continue
@@ -330,11 +334,16 @@ export async function readTelemetry(now = Date.now()): Promise<Telemetry> {
       pull(current, 'humidity', { device_id: current.device, component: current.humidity }),
     ])
     pulls = [open, device, tempPull, humidPull].map(({ name, status, records }) => ({ name, status, records }))
-    const merged = parseReadings({ records: [open, device, tempPull, humidPull].flatMap((item) => rowsOf(item.body)) }, now)
-    const askedTemp = parseReadings(tempPull.body, now, 'temperature')
-    const askedHumid = parseReadings(humidPull.body, now, 'humidity')
-    temperature = newer(merged.temperature, askedTemp.temperature)
-    humidity = newer(merged.humidity, askedHumid.humidity) ?? askedTemp.humidity
+    const stream = current.temperature.replace(/\.(temperature|humidity)$/i, '')
+    const askedTemp = parseReadings(tempPull.body, now, 'temperature', stream)
+    const askedHumid = parseReadings(humidPull.body, now, 'humidity', stream)
+    const fromDevice = parseReadings(device.body, now, undefined, stream)
+    const fromOpen = parseReadings(open.body, now, undefined, stream)
+    temperature = askedTemp.temperature ?? fromDevice.temperature ?? fromOpen.temperature
+    humidity = askedHumid.humidity ?? fromDevice.humidity ?? fromOpen.humidity
+    console.info(
+      `telemetry link-pending temp=${tempPull.status}/${tempPull.records} humid=${humidPull.status}/${humidPull.records} device=${device.status}/${device.records} open=${open.status}/${open.records}`,
+    )
     const tempMessage = errorMessage(tempPull.body)
     const humidMessage = errorMessage(humidPull.body)
     temperatureNote = noteFor(

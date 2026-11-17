@@ -4,6 +4,7 @@
  * for the life of the process (local dev and tests).
  * The sent log is only touched by the tick, and only after an event is due.
  */
+import type { Booking } from './booking.js'
 import { defaultSettings, normalizeSettings, type LightSettings } from './settings.js'
 
 export type ActionLogEntry = {
@@ -18,12 +19,14 @@ export type ActionLogEntry = {
 const SETTINGS = 'sauna/settings.json'
 const SENT = 'sauna/sent-log.json'
 const LOG = 'sauna/action-log.json'
+const BOOKINGS = 'sauna/bookings.json'
 const LOG_LIMIT = 40
 
-const memory: { settings: LightSettings | null; sent: string[]; log: ActionLogEntry[] } = {
+const memory: { settings: LightSettings | null; sent: string[]; log: ActionLogEntry[]; bookings: { at: number; bookings: Booking[] } | null } = {
   settings: null,
   sent: [],
   log: [],
+  bookings: null,
 }
 
 export function storageKind(): 'blob' | 'memory' {
@@ -110,4 +113,20 @@ export async function appendActionLog(entries: ActionLogEntry[]) {
     return
   }
   await writeBlob(LOG, { entries: next })
+}
+
+export async function readBookingCache(): Promise<{ at: number; bookings: Booking[] } | null> {
+  if (storageKind() === 'memory') return memory.bookings
+  const stored = await readBlob<{ at?: unknown; bookings?: unknown }>(BOOKINGS)
+  if (!stored || typeof stored.at !== 'number' || !Array.isArray(stored.bookings)) return null
+  return { at: stored.at, bookings: stored.bookings as Booking[] }
+}
+
+export async function writeBookingCache(bookings: Booking[]) {
+  const next = { at: Date.now(), bookings }
+  if (storageKind() === 'memory') {
+    memory.bookings = next
+    return
+  }
+  await writeBlob(BOOKINGS, next)
 }

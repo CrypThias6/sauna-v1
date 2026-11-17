@@ -1,21 +1,9 @@
-import { heatHex } from '../lib/heat'
 import { formatTemp } from '../lib/format'
-import { flueLabel, fluePhase, temperatureSamples } from '../lib/flue'
+import { peopleInRoom } from '../lib/people'
 import { useLiveSensor } from '../lib/sensor'
 import { sensorLink } from '../lib/sensor-status'
-import { useSettings } from '../lib/settings'
+import { useTodayBook } from '../lib/day-book'
 import { useSauna } from '../state/store'
-import type { Sauna } from '../types'
-
-function zoneLine(sauna: Sauna) {
-  const parts = sauna.cameras
-    .map((camera) => {
-      const count = sauna.occupants.filter((person) => person.zone === camera.id).length
-      return count > 0 ? `${count} ${camera.short}` : null
-    })
-    .filter((part): part is string => part !== null)
-  return parts.length > 0 ? parts.join(' · ') : 'Nobody inside'
-}
 
 function ageLabel(recordedAt: string | null, now: number) {
   if (!recordedAt) return ''
@@ -29,15 +17,14 @@ function ageLabel(recordedAt: string | null, now: number) {
 }
 
 export function Controls() {
-  const { saunas, index, now, setTarget, toggleDoor, toggleHeater } = useSauna()
-  const { safeC } = useSettings()
+  const { saunas, index, now } = useSauna()
   const sensor = useLiveSensor()
+  const book = useTodayBook()
   const sauna = saunas[index]
-  const flue = flueLabel(fluePhase(sauna.heaterOn, sauna.airC, safeC, temperatureSamples(sauna.id)))
-  const age = ageLabel(sensor.recordedAt, now)
-  const humidAge = ageLabel(sensor.humidity?.recordedAt ?? null, now)
   const link = sensor.known ? sensorLink({ now, heardAt: sensor.heardAt, reachable: sensor.reachable }) : null
   const heard = ageLabel(sensor.heardAt, now)
+  const age = ageLabel(sensor.temperature?.recordedAt ?? sensor.recordedAt, now)
+  const humidAge = ageLabel(sensor.humidity?.recordedAt ?? null, now)
   const badge =
     link === 'online'
       ? 'Sensor online'
@@ -48,18 +35,16 @@ export function Controls() {
         : link === 'unreachable'
           ? "Can't reach Piqo"
           : ''
-  const airLine =
-    sensor.celsius == null
-      ? sensor.error || 'Sensor offline'
-      : link === 'offline'
-        ? `Sensor offline · last updated ${age || 'earlier'}`
-        : `Last updated ${age || 'just now'}`
-  const humidLine =
-    sensor.humidityPercent == null
-      ? sensor.humidityError || 'No humidity reading.'
-      : link === 'offline'
-        ? `Sensor offline · updated ${humidAge || 'earlier'}`
-        : `updated ${humidAge || 'just now'}`
+  const people = book.known && book.connected ? peopleInRoom(book.bookings, now, sauna.name) : null
+  const peopleLine = !book.known
+    ? 'Checking the calendar'
+    : !book.connected
+      ? 'Booking calendar not connected'
+      : people == null
+        ? 'Party size unknown'
+        : people === 0
+          ? 'No booking now'
+          : 'Booked now'
 
   return (
     <section className="block" id="controls" aria-label="This room">
@@ -73,56 +58,34 @@ export function Controls() {
         </p>
       ) : null}
       <div className="controls">
-        <label className="chip air" data-stale={sensor.celsius == null || link !== 'online' ? true : undefined}>
-          <span className="k">Air</span>
-          <span className="v" style={sensor.celsius == null ? undefined : { color: heatHex(sensor.celsius) }}>
+        <div className="chip" data-stale={sensor.celsius == null || link !== 'online' ? true : undefined}>
+          <span className="k">Temp</span>
+          <span className="v">
             {sensor.celsius == null ? '—' : formatTemp(sensor.celsius)}
             {sensor.celsius == null ? null : <sup>°</sup>}
           </span>
-          <span className="s">{airLine}</span>
-          <input
-            type="range"
-            min={40}
-            max={100}
-            step={1}
-            value={Math.round(sauna.targetC)}
-            aria-label={`${sauna.name} scene target`}
-            onChange={(event) => setTarget(sauna.id, Number(event.target.value))}
-          />
-        </label>
-
+          <span className="s">{sensor.celsius == null ? sensor.error || 'No temperature reading.' : `updated ${age || 'just now'}`}</span>
+        </div>
+        <div className="chip" data-stale={true}>
+          <span className="k">CO</span>
+          <span className="v">—</span>
+          <span className="s">No CO sensor</span>
+        </div>
         <div className="chip" data-stale={sensor.humidityPercent == null || link !== 'online' ? true : undefined}>
           <span className="k">Humidity</span>
           <span className="v">
-            {sensor.humidityPercent == null ? '—' : Math.round(sensor.humidityPercent)}
+            {sensor.humidityPercent == null ? '—' : Number.isInteger(sensor.humidityPercent) ? sensor.humidityPercent : sensor.humidityPercent.toFixed(1)}
             {sensor.humidityPercent == null ? null : <small>%</small>}
           </span>
-          <span className="s">{humidLine}</span>
-        </div>
-
-        <div className="chip people">
-          <span className="k">Scene</span>
-          <span className="v">
-            {sauna.occupants.length}
-            <small>/{sauna.capacity}</small>
+          <span className="s">
+            {sensor.humidityPercent == null ? sensor.humidityError || 'No humidity reading.' : `updated ${humidAge || 'just now'}`}
           </span>
-          <span className="s">{zoneLine(sauna)}</span>
         </div>
-
-        <button type="button" className="chip door" onClick={() => toggleDoor(sauna.id)} data-open={sauna.doorOpen}>
-          <span className="k">Door</span>
-          <span className="v">{sauna.doorOpen ? 'Open' : 'Shut'}</span>
-          <span className="s">{sauna.lock === 'locked' ? 'Locked' : 'Unlocked'}</span>
-        </button>
-
-        <button type="button" className="chip heat" onClick={() => toggleHeater(sauna.id)} data-on={sauna.heaterOn}>
-          <span className="k">Heater</span>
-          <span className="v">
-            {Math.round(sauna.heaterPower * 100)}
-            <small>%</small>
-          </span>
-          <span className="s">{flue}</span>
-        </button>
+        <div className="chip">
+          <span className="k">People</span>
+          <span className="v">{people == null ? '—' : people}</span>
+          <span className="s">{peopleLine}</span>
+        </div>
       </div>
     </section>
   )
