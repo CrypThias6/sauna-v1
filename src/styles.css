@@ -155,9 +155,21 @@ button { cursor: pointer; }
 
 .controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.25fr 0.9fr repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+
+.sensor-badge {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sensor-badge[data-link='online'] { color: #7dcea0; }
+.sensor-badge[data-link='offline'] { color: var(--warn); }
+.sensor-badge[data-link='unreachable'] { color: var(--warn); }
 
 .chip {
   display: block;

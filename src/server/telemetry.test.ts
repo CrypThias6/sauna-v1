@@ -60,6 +60,22 @@ describe('parseReadings', () => {
   })
 })
 
+describe('humidity parsing', () => {
+  it('reads sht4x.09c38e29.humidity and ignores a preview moisture value', () => {
+    const parsed = parseReadings(
+      {
+        records: [
+          { stream_id: 'sht4x.09c38e29.humidity', value: '34', unit: '%', recorded_at: FRESH },
+          { stream_id: 'preview.moisture', value: 80, unit: '%', recorded_at: FRESH },
+        ],
+      },
+      NOW,
+    )
+    expect(parsed.humidity).toMatchObject({ value: 34, unit: '%', recordedAt: FRESH, stale: false })
+    expect(parsed.temperature).toBeNull()
+  })
+})
+
 describe('readTelemetry', () => {
   it('reads stream_id values that are strings or objects, and reports upstream status without the token', async () => {
     process.env.PIQO_READ_TOKEN = 'secret-read-token'
@@ -91,6 +107,7 @@ describe('readTelemetry', () => {
     expect(urls.every((url) => url.includes('/api/v1/space/readings/latest'))).toBe(true)
     expect(body.celsius).toBe(81.5)
     expect(body.humidityPercent).toBe(22)
+    expect(body.link).toBe('online')
     expect(body.error).toBeNull()
     expect(body.debug.pulls.map((pull) => pull.name)).toEqual(['open', 'device', 'temperature', 'humidity'])
     expect(body.debug.pulls[0]).toMatchObject({ status: 200, records: 3 })
@@ -110,6 +127,7 @@ describe('readTelemetry', () => {
     expect(body.humidityPercent).toBeNull()
     expect(body.offline).toBe(true)
     expect(body.error).toBe('Piqo refused the sensor token (401).')
+    expect(body.link).toBe('unreachable')
     expect(body.debug.pulls).toHaveLength(4)
     expect(JSON.stringify(body)).not.toContain('secret-read-token')
   })

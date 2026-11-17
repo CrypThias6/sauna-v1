@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { SensorLink } from './sensor-status'
 import { markSession, subscribeSession } from './session'
 
 export type SensorPull = { name: string; status: number; records: number }
@@ -19,6 +20,10 @@ export type LiveSensor = {
   offline: boolean
   error: string | null
   humidityError: string | null
+  link: SensorLink
+  heardAt: string | null
+  reachable: boolean
+  known: boolean
   debug: { pulls: SensorPull[] } | null
   temperature: LiveReading | null
   humidity: LiveReading | null
@@ -31,6 +36,10 @@ const empty: LiveSensor = {
   offline: true,
   error: null,
   humidityError: null,
+  link: 'offline',
+  heardAt: null,
+  reachable: false,
+  known: false,
   debug: null,
   temperature: null,
   humidity: null,
@@ -74,6 +83,10 @@ function apply(body: unknown) {
     offline: row.offline !== false,
     error: typeof row.error === 'string' ? row.error : null,
     humidityError: typeof row.humidityError === 'string' ? row.humidityError : null,
+    link: row.link === 'online' || row.link === 'offline' || row.link === 'unreachable' ? row.link : 'offline',
+    heardAt: typeof row.heardAt === 'string' ? row.heardAt : null,
+    reachable: row.reachable === true,
+    known: true,
     debug: Array.isArray(row.debug?.pulls) ? { pulls: row.debug.pulls } : null,
     temperature,
     humidity,
@@ -91,14 +104,20 @@ async function load() {
       return
     }
     if (!response.ok) {
-      current = { ...empty, error: typeof body?.error === 'string' ? body.error : `Sensor request failed (${response.status}).` }
+      current = {
+        ...empty,
+        known: true,
+        link: 'unreachable',
+        error: typeof body?.error === 'string' ? body.error : `Sensor request failed (${response.status}).`,
+        humidityError: typeof body?.error === 'string' ? body.error : `Sensor request failed (${response.status}).`,
+      }
       emit()
       return
     }
     apply(body)
     emit()
   } catch {
-    current = { ...empty, error: 'Sensor offline' }
+    current = { ...empty, known: true, link: 'unreachable', error: "Can't reach Piqo", humidityError: "Can't reach Piqo" }
     emit()
   } finally {
     inflight = false

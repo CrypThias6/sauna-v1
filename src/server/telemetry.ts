@@ -8,6 +8,7 @@
  * are accepted too. A list may also sit under `readings`, `data`, `items`, or `results`.
  * CO, CO₂, moisture, and anything named simulated are ignored. A missing value stays null.
  */
+import { newestHeard, piqoReachable, sensorLink, type SensorLink } from '../lib/sensor-status.js'
 
 export const OFFLINE_MS = 5 * 60 * 1000
 
@@ -37,6 +38,9 @@ export type Telemetry = {
   offline: boolean
   error: string | null
   humidityError: string | null
+  link: SensorLink
+  heardAt: string | null
+  reachable: boolean
   debug: { pulls: SensorPull[] }
   temperature: SensorReading | null
   humidity: SensorReading | null
@@ -262,6 +266,9 @@ function blank(note: string | null, pulls: SensorPull[] = []): Telemetry {
     offline: true,
     error: note,
     humidityError: note,
+    link: 'unreachable',
+    heardAt: null,
+    reachable: false,
     debug: { pulls },
     temperature: null,
     humidity: null,
@@ -350,13 +357,19 @@ export async function readTelemetry(now = Date.now()): Promise<Telemetry> {
     humidityNote = message
   }
   const recordedAt = temperature?.recordedAt ?? humidity?.recordedAt ?? null
+  const heardAt = newestHeard([temperature?.recordedAt, humidity?.recordedAt])
+  const reachable = piqoReachable(pulls)
+  const link = sensorLink({ now, heardAt, reachable })
   return {
     celsius: temperature?.value ?? null,
     humidityPercent: humidity?.value ?? null,
     recordedAt,
-    offline: !temperature || temperature.stale,
-    error: temperature ? (temperature.stale ? 'Sensor offline' : null) : temperatureNote,
-    humidityError: humidity ? (humidity.stale ? 'Sensor offline' : null) : humidityNote,
+    offline: link !== 'online',
+    error: temperature && !temperature.stale ? null : link === 'unreachable' ? temperatureNote || "Can't reach Piqo" : temperatureNote,
+    humidityError: humidity && !humidity.stale ? null : humidityNote,
+    link,
+    heardAt,
+    reachable,
     debug: { pulls },
     temperature,
     humidity,
