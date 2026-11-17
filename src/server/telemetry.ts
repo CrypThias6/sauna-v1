@@ -24,11 +24,20 @@ export type SensorReading = {
   quality: string | null
 }
 
+export type SensorPull = {
+  name: 'open' | 'device' | 'temperature' | 'humidity'
+  status: number
+  records: number
+}
+
 export type Telemetry = {
   celsius: number | null
   humidityPercent: number | null
   recordedAt: string | null
   offline: boolean
+  error: string | null
+  humidityError: string | null
+  debug: { pulls: SensorPull[] }
   temperature: SensorReading | null
   humidity: SensorReading | null
   temperatureNote: string | null
@@ -83,6 +92,8 @@ function textOf(value: unknown): string {
 
 function identity(record: Record<string, unknown>) {
   return [
+    record.stream_id,
+    record.streamId,
     record.component,
     record.component_id,
     record.componentId,
@@ -98,11 +109,28 @@ function identity(record: Record<string, unknown>) {
     .toLowerCase()
 }
 
-function numberOf(value: unknown) {
+const TEMP_KEYS = ['temperature', 'temperature_c', 'temp', 'temp_c', 'celsius', 'cel', 'value', 'reading', 'v']
+const HUMID_KEYS = ['humidity', 'humidity_rh', 'relative_humidity', 'rh', 'percent', 'value', 'reading', 'v']
+
+function numberOf(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
+  if (typeof value === 'string') {
+    const match = value.trim().match(/-?\d+(?:\.\d+)?/)
+    if (!match) return null
+    const parsed = Number(match[0])
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function field(record: Record<string, unknown>, kind: 'temperature' | 'humidity') {
+  const raw = record.value ?? record.reading ?? record.v
+  if (!isRecord(raw)) return numberOf(raw)
+  const keys = kind === 'humidity' ? HUMID_KEYS : TEMP_KEYS
+  for (const key of keys) {
+    if (!(key in raw)) continue
+    const parsed = numberOf(raw[key])
+    if (parsed != null) return parsed
   }
   return null
 }
@@ -119,8 +147,8 @@ function whenOf(record: Record<string, unknown>) {
   return null
 }
 
-function readingFrom(record: Record<string, unknown>, now: number, unit: string | null): SensorReading | null {
-  const value = numberOf(record.value ?? record.reading ?? record.v)
+function readingFrom(record: Record<string, unknown>, now: number, unit: string | null, kind: 'temperature' | 'humidity'): SensorReading | null {
+  const value = field(record, kind)
   if (value == null) return null
   const recordedAt = whenOf(record)
   const ageMs = recordedAt ? Math.max(0, now - Date.parse(recordedAt)) : null
@@ -192,15 +220,15 @@ export function parseReadings(
   for (const record of rowsOf(body)) {
     const blob = identity(record)
     if (rejected(blob)) continue
-    const tempUnit = temperatureUnit(record, blob)
-    if (tempUnit && !/humidity/.test(blob)) {
-      const reading = readingFrom(record, now, tempUnit)
+    const wantsHumidity = /humidity|\brh\b/.test(blob)
+    const wantsTemp = !wantsHumidity && (/temperature|\btemp\b/.test(blob) || Boolean(temperatureUnit(record, blob)))
+    if (wantsTemp) {
+      const reading = readingFrom(record, now, 'Cel', 'temperature')
       if (reading && plausibleTemp(reading.value)) temperature = newer(temperature, reading)
       continue
     }
-    const humidUnit = humidityUnit(record, blob)
-    if (humidUnit) {
-      const reading = readingFrom(record, now, humidUnit)
+    if (wantsHumidity || humidityUnit(record, blob)) {
+      const reading = readingFrom(record, now, '%', 'humidity')
       if (reading && plausibleHumidity(reading.value)) humidity = newer(humidity, reading)
     }
   }
@@ -217,7 +245,7 @@ function fallback(body: unknown, now: number, kind: 'temperature' | 'humidity') 
     const unit = textOf(record.unit).toLowerCase()
     if (kind === 'temperature' && (/humidity|%|rh|ppm|percent/.test(`${blob} ${unit}`))) continue
     if (kind === 'humidity' && (/temperature|\btemp\b|ppm|cel|celsius/.test(`${blob} ${unit}`))) continue
-    const reading = readingFrom(record, now, kind === 'temperature' ? 'Cel' : '%')
+    const reading = readingFrom(record, now, kind === 'temperature' ? 'Cel' : '%', kind)
     if (!reading) continue
     if (kind === 'temperature' && !plausibleTemp(reading.value)) continue
     if (kind === 'humidity' && !plausibleHumidity(reading.value)) continue
@@ -226,12 +254,15 @@ function fallback(body: unknown, now: number, kind: 'temperature' | 'humidity') 
   return chosen
 }
 
-function blank(note: string | null): Telemetry {
+function blank(note: string | null, pulls: SensorPull[] = []): Telemetry {
   return {
     celsius: null,
     humidityPercent: null,
     recordedAt: null,
     offline: true,
+    error: note,
+    humidityError: note,
+    debug: { pulls },
     temperature: null,
     humidity: null,
     temperatureNote: note,
@@ -241,30 +272,34 @@ function blank(note: string | null): Telemetry {
   }
 }
 
-async function pull(current: PullConfig, component: string) {
+async function pull(current: PullConfig, name: SensorPull['name'], query: Record<string, string>): Promise<SensorPull & { body: unknown }> {
   const url = new URL('/api/v1/space/readings/latest', current.base)
-  if (current.device) url.searchParams.set('device_id', current.device)
-  url.searchParams.set('component', component)
+  for (const [key, value] of Object.entries(query)) {
+    if (value) url.searchParams.set(key, value)
+  }
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${current.token}`, accept: 'application/json' },
     signal: AbortSignal.timeout(10_000),
   })
   const text = await response.text()
-  if (current.token && text.includes(current.token)) return { status: response.status, body: null as unknown }
+  if (current.token && text.includes(current.token)) return { name, status: response.status, records: 0, body: null }
   try {
-    return { status: response.status, body: JSON.parse(text) as unknown }
+    const body = JSON.parse(text) as unknown
+    return { name, status: response.status, records: rowsOf(body).length, body }
   } catch {
-    return { status: response.status, body: null }
+    return { name, status: response.status, records: 0, body: null }
   }
 }
 
-function noteFor(status: number, reading: SensorReading | null, kind: 'temperature' | 'humidity', message: string) {
-  if (status === 401) return 'Piqo refused the sensor token.'
-  if (status === 403) return kind === 'humidity' ? 'This token cannot read humidity.' : 'This token cannot read temperature.'
+function noteFor(status: number, reading: SensorReading | null, kind: 'temperature' | 'humidity', message: string, records: number) {
+  if (reading && !reading.stale) return null
+  if (reading?.stale) return 'Sensor offline'
+  if (status === 401) return 'Piqo refused the sensor token (401).'
+  if (status === 403) return kind === 'humidity' ? 'Piqo refused humidity (403).' : 'Piqo refused temperature (403).'
+  if (status === 404) return `Piqo has no ${kind} reading (404).`
   if (message && status >= 400) return message.slice(0, 160)
-  if (!reading) return kind === 'humidity' ? 'No humidity reading.' : 'No temperature reading.'
-  if (reading.stale) return 'Sensor offline'
-  return null
+  if (records === 0) return `Piqo returned no ${kind} records.`
+  return `Piqo returned ${records} records, none were the SHT4x ${kind}.`
 }
 
 function errorMessage(body: unknown) {
@@ -279,17 +314,36 @@ export async function readTelemetry(now = Date.now()): Promise<Telemetry> {
   let humidity: SensorReading | null = null
   let temperatureNote: string | null = null
   let humidityNote: string | null = null
+  let pulls: SensorPull[] = []
   try {
-    const [tempPull, humidPull] = await Promise.all([
-      pull(current, current.temperature),
-      pull(current, current.humidity),
+    const [open, device, tempPull, humidPull] = await Promise.all([
+      pull(current, 'open', {}),
+      pull(current, 'device', { device_id: current.device }),
+      pull(current, 'temperature', { device_id: current.device, component: current.temperature }),
+      pull(current, 'humidity', { device_id: current.device, component: current.humidity }),
     ])
-    const fromTemp = parseReadings(tempPull.body, now, 'temperature')
-    const fromHumid = parseReadings(humidPull.body, now, 'humidity')
-    temperature = fromTemp.temperature
-    humidity = fromHumid.humidity ?? fromTemp.humidity
-    temperatureNote = noteFor(tempPull.status, temperature, 'temperature', errorMessage(tempPull.body).includes(current.token) ? '' : errorMessage(tempPull.body))
-    humidityNote = noteFor(humidPull.status, humidity, 'humidity', errorMessage(humidPull.body).includes(current.token) ? '' : errorMessage(humidPull.body))
+    pulls = [open, device, tempPull, humidPull].map(({ name, status, records }) => ({ name, status, records }))
+    const merged = parseReadings({ records: [open, device, tempPull, humidPull].flatMap((item) => rowsOf(item.body)) }, now)
+    const askedTemp = parseReadings(tempPull.body, now, 'temperature')
+    const askedHumid = parseReadings(humidPull.body, now, 'humidity')
+    temperature = newer(merged.temperature, askedTemp.temperature)
+    humidity = newer(merged.humidity, askedHumid.humidity) ?? askedTemp.humidity
+    const tempMessage = errorMessage(tempPull.body)
+    const humidMessage = errorMessage(humidPull.body)
+    temperatureNote = noteFor(
+      tempPull.status,
+      temperature,
+      'temperature',
+      tempMessage.includes(current.token) ? '' : tempMessage,
+      Math.max(open.records, device.records, tempPull.records),
+    )
+    humidityNote = noteFor(
+      humidPull.status,
+      humidity,
+      'humidity',
+      humidMessage.includes(current.token) ? '' : humidMessage,
+      Math.max(open.records, device.records, humidPull.records),
+    )
   } catch (error) {
     const message = safeError(error, current.token)
     temperatureNote = message
@@ -301,6 +355,9 @@ export async function readTelemetry(now = Date.now()): Promise<Telemetry> {
     humidityPercent: humidity?.value ?? null,
     recordedAt,
     offline: !temperature || temperature.stale,
+    error: temperature ? (temperature.stale ? 'Sensor offline' : null) : temperatureNote,
+    humidityError: humidity ? (humidity.stale ? 'Sensor offline' : null) : humidityNote,
+    debug: { pulls },
     temperature,
     humidity,
     temperatureNote,

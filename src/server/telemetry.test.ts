@@ -61,7 +61,7 @@ describe('parseReadings', () => {
 })
 
 describe('readTelemetry', () => {
-  it('requests both SHT4x components with the bearer token and does not return the token', async () => {
+  it('reads stream_id values that are strings or objects, and reports upstream status without the token', async () => {
     process.env.PIQO_READ_TOKEN = 'secret-read-token'
     const urls: string[] = []
     vi.stubGlobal(
@@ -70,20 +70,33 @@ describe('readTelemetry', () => {
         urls.push(String(url))
         const headers = new Headers(init.headers)
         expect(headers.get('authorization')).toBe('Bearer secret-read-token')
-        const component = new URL(String(url)).searchParams.get('component')
-        const value = component?.endsWith('humidity') ? 22 : 81.5
-        const unit = component?.endsWith('humidity') ? '%' : 'Cel'
-        return new Response(JSON.stringify({ records: [{ component, value, unit, recorded_at: FRESH }] }), { status: 200 })
+        const parsed = new URL(String(url))
+        if (!parsed.searchParams.get('device_id') && !parsed.searchParams.get('component')) {
+          return new Response(
+            JSON.stringify({
+              records: [
+                { stream_id: 'sht4x.09c38e29.temperature', value: { celsius: '81.5' }, recorded_at: FRESH },
+                { stream_id: 'sht4x.09c38e29.humidity', value: '22', recorded_at: FRESH },
+                { stream_id: 'simulated.co', value: { value: 0 }, recorded_at: FRESH },
+              ],
+            }),
+            { status: 200 },
+          )
+        }
+        return new Response(JSON.stringify({ error: { message: 'missing' } }), { status: 404 })
       }),
     )
     const body = await readTelemetry(NOW)
-    expect(urls).toHaveLength(2)
-    expect(urls.every((url) => url.includes('sht4x.09c38e29'))).toBe(true)
+    expect(urls).toHaveLength(4)
+    expect(urls.every((url) => url.includes('/api/v1/space/readings/latest'))).toBe(true)
     expect(body.celsius).toBe(81.5)
     expect(body.humidityPercent).toBe(22)
-    expect(body.recordedAt).toBe(FRESH)
-    expect(body.offline).toBe(false)
+    expect(body.error).toBeNull()
+    expect(body.debug.pulls.map((pull) => pull.name)).toEqual(['open', 'device', 'temperature', 'humidity'])
+    expect(body.debug.pulls[0]).toMatchObject({ status: 200, records: 3 })
+    expect(body.debug.pulls[2]).toMatchObject({ status: 404, records: 0 })
     expect(JSON.stringify(body)).not.toContain('secret-read-token')
+    expect(JSON.stringify(body.debug)).not.toContain('http')
   })
 
   it('stays blank and offline when Piqo refuses the token', async () => {
@@ -96,7 +109,8 @@ describe('readTelemetry', () => {
     expect(body.celsius).toBeNull()
     expect(body.humidityPercent).toBeNull()
     expect(body.offline).toBe(true)
-    expect(body.temperatureNote).toBe('Piqo refused the sensor token.')
+    expect(body.error).toBe('Piqo refused the sensor token (401).')
+    expect(body.debug.pulls).toHaveLength(4)
     expect(JSON.stringify(body)).not.toContain('secret-read-token')
   })
 })

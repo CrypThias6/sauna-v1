@@ -1,4 +1,5 @@
 import { roomChecks, type Check } from '../lib/checks'
+import { useLiveSensor } from '../lib/sensor'
 import { useSettings } from '../lib/settings'
 import { useSauna } from '../state/store'
 
@@ -43,8 +44,9 @@ function Row({ check, onPress }: { check: Check; onPress?: () => void }) {
 export function Telemetry() {
   const { saunas, index, now, toggleLock, toggleHeater, toggleLights } = useSauna()
   const settings = useSettings()
+  const sensor = useLiveSensor()
   const sauna = saunas[index]
-  const checks = roomChecks(sauna, settings, now)
+  const checks = roomChecks(sauna, settings, now, { celsius: sensor.celsius, error: sensor.error })
   const press: Record<string, (() => void) | undefined> = {
     lock: () => toggleLock(sauna.id),
     heater: () => toggleHeater(sauna.id),

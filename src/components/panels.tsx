@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
 import { roomChecks } from '../lib/checks'
 import { fluePhase, temperatureSamples, type Flue } from '../lib/flue'
+import { getLiveSensor } from '../lib/sensor'
 import { getSettings, updateSettings, useSettings, type Settings } from '../lib/settings'
 import { bridgeListening, subscribeBridge } from '../mcp/link'
 import { getVisit } from '../scene/visit'
@@ -355,7 +356,7 @@ export function Toasts() {
     const settingsNow = getSettings()
     const watch = new Map<string, string>()
     for (const sauna of saunas) {
-      for (const check of roomChecks(sauna, settingsNow, Date.now())) {
+      for (const check of roomChecks(sauna, settingsNow, Date.now(), getLiveSensor())) {
         if (!check.watch || !check.alert || check.watch.endsWith(':low')) continue
         watch.set(`${sauna.id}:${check.watch}`, `${sauna.name} · ${check.alert}`)
       }

@@ -64,27 +64,32 @@ function row(
   return { id, label, value, ok, watch: ok ? watch : `${id}:${watch ?? 'bad'}`, alert: ok ? alert : alert, action }
 }
 
-/** What the owner can scan for this room. Failures are the alerts she turned on. */
-export function roomChecks(sauna: Sauna, settings: Settings, now: number): Check[] {
+/** What the owner can scan for this room. Failures are the alerts she turned on. The temp row is the live sensor, never the 3D preview. */
+export function roomChecks(
+  sauna: Sauna,
+  settings: Settings,
+  now: number,
+  live: { celsius: number | null; error: string | null } = { celsius: null, error: null },
+): Check[] {
   const due = dueFor(sauna, now)
   const sessionOn = due.on
   const people = sauna.occupants.length
   const party = due.booked?.people ?? 0
   const lightsOn = sauna.lights.filter((light) => light.on).length
-  const air = `${formatTemp(sauna.airC)}°`
+  const air = live.celsius == null ? null : `${formatTemp(live.celsius)}°`
   const target = Math.round(sauna.targetC)
   const checks: Check[] = []
 
-  const tooHot = settings.heat && sauna.airC > settings.tooHot
-  const under = settings.heat && sessionOn && sauna.airC < sauna.targetC - settings.underBy
+  const tooHot = air != null && settings.heat && (live.celsius ?? 0) > settings.tooHot
+  const under = air != null && settings.heat && sessionOn && (live.celsius ?? 0) < sauna.targetC - settings.underBy
   checks.push(
     row(
       'temp',
       'Temp',
-      tooHot ? `${air} · too hot` : under ? `${air} · under ${target}°` : `${air} · target ${target}°`,
-      !tooHot && !under,
+      air == null ? `— · ${live.error || 'Sensor offline'}` : tooHot ? `${air} · too hot` : under ? `${air} · under ${target}°` : `${air} · target ${target}°`,
+      air != null && !tooHot && !under,
       tooHot ? 'hot' : under ? 'under' : null,
-      tooHot ? `${air} · too hot` : under ? `${air} · under target` : null,
+      air == null ? null : tooHot ? `${air} · too hot` : under ? `${air} · under target` : null,
     ),
   )
 

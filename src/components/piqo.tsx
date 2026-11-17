@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 import { peopleWord } from '../lib/format'
 import type { PiqoAction } from '../lib/lights'
 import { getSettings, updateSettings, useSettings } from '../lib/settings'
+import { useLiveSensor } from '../lib/sensor'
 import { markSession, sessionGate, sessionGeneration, staffFetch, subscribeSession } from '../lib/session'
 import { useSauna } from '../state/store'
 
@@ -13,14 +14,6 @@ type Reading = {
   ageMs: number | null
   stale: boolean
   quality: string | null
-}
-
-type Sensor = {
-  temperature: Reading | null
-  humidity: Reading | null
-  temperatureNote: string | null
-  humidityNote: string | null
-  coNote: string | null
 }
 
 type ApiBooking = {
@@ -131,38 +124,12 @@ export function Piqo() {
   const settings = useSettings()
   const generation = useSyncExternalStore(subscribeSession, sessionGeneration, () => 0)
   const gate = useSyncExternalStore(subscribeSession, sessionGate, () => 'unknown' as const)
-  const [sensor, setSensor] = useState<Sensor | null>(null)
-  const [sensorError, setSensorError] = useState<string | null>(null)
+  const sensor = useLiveSensor()
   const [bookings, setBookings] = useState<ApiBooking[] | null>(null)
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [pending, setPending] = useState<string | null>(null)
   const [fault, setFault] = useState<string | null>(null)
   const minute = Math.floor(now / 60_000)
-
-  useEffect(() => {
-    const stop = new AbortController()
-    const load = () => {
-      staffFetch('/api/telemetry', { signal: stop.signal })
-        .then(async (response) => {
-          if (response.status === 401) return
-          if (!response.ok) throw new Error('no sensor')
-          const body = (await response.json()) as Sensor
-          if (!body || typeof body !== 'object' || !('temperature' in body)) throw new Error('no sensor')
-          setSensor(body)
-          setSensorError(null)
-        })
-        .catch(() => {
-          if (stop.signal.aborted) return
-          setSensorError('Sensor offline')
-        })
-    }
-    load()
-    const id = window.setInterval(load, 20_000)
-    return () => {
-      stop.abort()
-      window.clearInterval(id)
-    }
-  }, [generation])
 
   useEffect(() => {
     const stop = new AbortController()
@@ -295,24 +262,29 @@ export function Piqo() {
       <div className="piqo-grid">
         <SensorChip
           label="Temperature"
-          reading={sensor?.temperature ?? null}
-          note={sensorError || sensor?.temperatureNote || 'Reading…'}
+          reading={sensor.temperature}
+          note={sensor.error}
           now={now}
           digits={1}
         />
         <SensorChip
           label="Humidity"
-          reading={sensor?.humidity ?? null}
-          note={sensorError || sensor?.humidityNote || 'Reading…'}
+          reading={sensor.humidity}
+          note={sensor.humidityError}
           now={now}
           digits={0}
         />
-        <div className="chip">
+        <div className="chip" data-stale={true}>
           <span className="k">CO</span>
           <span className="v">—</span>
-          <span className="s">{sensor?.coNote || 'No sensor yet'}</span>
+          <span className="s">No CO sensor</span>
         </div>
       </div>
+      {sensor.debug ? (
+        <p className="piqo-note">
+          {sensor.debug.pulls.map((pull) => `${pull.name} ${pull.status} · ${pull.records} records`).join(' · ')}
+        </p>
+      ) : null}
 
       <div className="block-head piqo-lights-head">
         <h2>Lights</h2>

@@ -1,6 +1,7 @@
 import { heatHex } from '../lib/heat'
 import { formatTemp } from '../lib/format'
 import { flueLabel, fluePhase, temperatureSamples } from '../lib/flue'
+import { useLiveSensor } from '../lib/sensor'
 import { useSettings } from '../lib/settings'
 import { useSauna } from '../state/store'
 import type { Sauna } from '../types'
@@ -15,11 +16,30 @@ function zoneLine(sauna: Sauna) {
   return parts.length > 0 ? parts.join(' · ') : 'Nobody inside'
 }
 
+function ageLabel(recordedAt: string | null, now: number) {
+  if (!recordedAt) return ''
+  const at = Date.parse(recordedAt)
+  if (!Number.isFinite(at)) return ''
+  const seconds = Math.max(0, Math.round((now - at) / 1000))
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 120) return `${minutes} min ago`
+  return `${Math.floor(minutes / 60)} h ago`
+}
+
 export function Controls() {
-  const { saunas, index, setTarget, toggleDoor, toggleHeater } = useSauna()
+  const { saunas, index, now, setTarget, toggleDoor, toggleHeater } = useSauna()
   const { safeC } = useSettings()
+  const sensor = useLiveSensor()
   const sauna = saunas[index]
   const flue = flueLabel(fluePhase(sauna.heaterOn, sauna.airC, safeC, temperatureSamples(sauna.id)))
+  const age = ageLabel(sensor.recordedAt, now)
+  const airLine =
+    sensor.celsius == null
+      ? sensor.error || 'Sensor offline'
+      : sensor.offline
+        ? `Sensor offline · last updated ${age || 'earlier'}`
+        : `Last updated ${age || 'just now'}`
 
   return (
     <section className="block" id="controls" aria-label="This room">
@@ -28,13 +48,13 @@ export function Controls() {
         <p>{sauna.name}</p>
       </div>
       <div className="controls">
-        <label className="chip air">
+        <label className="chip air" data-stale={sensor.celsius == null || sensor.offline ? true : undefined}>
           <span className="k">Air</span>
-          <span className="v" style={{ color: heatHex(sauna.airC) }}>
-            {formatTemp(sauna.airC)}
-            <sup>°</sup>
+          <span className="v" style={sensor.celsius == null ? undefined : { color: heatHex(sensor.celsius) }}>
+            {sensor.celsius == null ? '—' : formatTemp(sensor.celsius)}
+            {sensor.celsius == null ? null : <sup>°</sup>}
           </span>
-          <span className="s">Preview · target {Math.round(sauna.targetC)}°</span>
+          <span className="s">{airLine}</span>
           <input
             type="range"
             min={40}

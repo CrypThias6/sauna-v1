@@ -121,7 +121,7 @@ The cookie is `sauna_session`, HttpOnly, Secure, SameSite=Lax, Path=/, about 12 
 
 ## What works
 
-- Live Grove SHT4x temperature (°C) and humidity (%) from `GET /api/v1/space/readings/latest`. The page polls `/api/telemetry` every 20 seconds and shows “Last updated … ago”. A missing reading, or one older than 5 minutes, says “Sensor offline” and is never shown as 0. Simulated CO and moisture readings are ignored. The preview heater in the 3D room is still the simulation. Tick does not read the sensor, and the reading never starts a Piqo action.
+- The Air number and the Temp row are the Grove SHT4x reading from `/api/telemetry`, polled every 20 seconds. They are not the 3D preview temperature. A missing reading shows “—” and the Piqo reason. The same block lists each upstream call’s status and record count, with no token. Simulated CO and moisture are ignored. The 3D room stays a preview and the reading never starts a Piqo action.
 - Today’s bookings come from the server. With `BOOKINGS_SOURCE=mock`, 16 Nov is 18:00–19:30, Big, Evening, 6 people, Auckland daylight time (`+13:00`).
 - Tick on that day records, once each, even if it runs twice: Glow on 18:00; Gentle flash 18:15, 18:30, 18:45, 19:00, 19:15; Glow off 19:30; Outdoor on 20:30; Outdoor off 23:30. A mark older than 5 minutes is skipped. A mark inside the last 5 minutes still fires if it was not recorded.
 - Outdoor on/off, both colours, and the flash interval (default 15) are saved in the private Blob.
