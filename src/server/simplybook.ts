@@ -81,7 +81,7 @@ function peopleOf(record: Record<string, unknown>): number | null {
 
 function statusOf(value: unknown): 'confirmed' | 'cancelled' {
   const raw = text(value).toLowerCase().replace(/[\s-]+/g, '_')
-  if (/cancel/.test(raw)) return 'cancelled'
+  if (raw === 'canceled' || raw === 'cancelled' || raw.startsWith('cancel')) return 'cancelled'
   return 'confirmed'
 }
 
@@ -101,21 +101,57 @@ function wall(value: unknown) {
     const parsed = Date.parse(raw)
     return Number.isFinite(parsed) ? formatZoned(new Date(parsed), ZONE) : null
   }
-  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(raw)
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(raw)
   if (!match) return null
-  const instant = wallToInstant(match[1], match[2], ZONE)
+  const instant = wallToInstant(match[1], match[2] || '00:00', ZONE)
   return instant ? formatZoned(instant, ZONE) : null
 }
 
-/** Map one SimplyBook booking. Cancelled rows are dropped. */
+function joinedClock(date: unknown, time: unknown) {
+  const day = text(date)
+  const clock = text(time)
+  if (!day) return null
+  return wall(clock ? `${day} ${clock}` : day)
+}
+
+function plusMinutes(iso: string, minutes: number) {
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return null
+  return formatZoned(new Date(at + minutes * 60_000), ZONE)
+}
+
+function minutesOf(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value)
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) && Number(value) > 0) return Math.round(Number(value))
+  return null
+}
+
+function when(record: Record<string, unknown>, kind: 'start' | 'end') {
+  if (kind === 'start') {
+    return (
+      wall(record.start_datetime ?? record.start_date_time ?? record.from ?? record.start) ??
+      joinedClock(record.start_date ?? record.date, record.start_time ?? record.time)
+    )
+  }
+  return (
+    wall(record.end_datetime ?? record.end_date_time ?? record.to ?? record.end) ??
+    joinedClock(record.end_date, record.end_time)
+  )
+}
+
+/** Map one SimplyBook booking. Only canceled rows are dropped. */
 export function mapSimplyBooking(input: unknown): Booking | null {
   if (!isRecord(input)) return null
   const record = isRecord(input.booking) ? input.booking : input
   const status = statusOf(record.status ?? record.booking_status)
   if (status === 'cancelled') return null
-  const start = wall(record.start_datetime ?? record.start ?? record.from)
-  const end = wall(record.end_datetime ?? record.end ?? record.to)
-  if (!start || !end || Date.parse(end) <= Date.parse(start)) return null
+  const start = when(record, 'start')
+  if (!start) return null
+  let end = when(record, 'end')
+  if (!end || Date.parse(end) <= Date.parse(start)) {
+    end = plusMinutes(start, minutesOf(record.duration) ?? 60)
+  }
+  if (!end || Date.parse(end) <= Date.parse(start)) return null
   const id = text(record.id ?? record.booking_id ?? record.code)
   if (!id) return null
   const client = text(record.client_name ?? record.client ?? record.name)
@@ -132,14 +168,7 @@ export function mapSimplyBooking(input: unknown): Booking | null {
 }
 
 export function mapSimplyBookings(input: unknown): Booking[] {
-  const rows = Array.isArray(input)
-    ? input
-    : isRecord(input) && Array.isArray(input.data)
-      ? input.data
-      : isRecord(input) && Array.isArray(input.bookings)
-        ? input.bookings
-        : []
-  return rows.flatMap((row) => {
+  return bookingRows(input).flatMap((row) => {
     const booking = mapSimplyBooking(row)
     return booking ? [booking] : []
   })
@@ -152,10 +181,21 @@ export type SimplyBookSnapshot = {
   authOk: boolean | null
   lastFetch: string | null
   count: number | null
+  rawCount: number | null
+  mappedCount: number | null
+  sampleKeys: string[] | null
   error: string | null
 }
 
-const snapshot: SimplyBookSnapshot = { authOk: null, lastFetch: null, count: null, error: null }
+const snapshot: SimplyBookSnapshot = {
+  authOk: null,
+  lastFetch: null,
+  count: null,
+  rawCount: null,
+  mappedCount: null,
+  sampleKeys: null,
+  error: null,
+}
 
 export function simplyBookSnapshot(): SimplyBookSnapshot {
   return { ...snapshot }
@@ -181,6 +221,50 @@ export function tokenExpiresAt(body: unknown, now: number) {
 
 export function tokenUsable(until: number, now: number) {
   return until - TOKEN_SKEW_MS > now
+}
+
+/** The admin list refuses more than 100 per page and reports the rest in metadata.pages_count. */
+export const BOOKING_PAGE_SIZE = 100
+const MAX_BOOKING_PAGES = 30
+
+/** Query string with literal filter brackets. SimplyBook reads filter[date_from], not an encoded key. */
+export function bookingListQuery(page: number, span: { from: string; to: string }) {
+  return [
+    `page=${page}`,
+    `on_page=${BOOKING_PAGE_SIZE}`,
+    'filter[upcoming_only]=0',
+    `filter[date_from]=${span.from}`,
+    `filter[date_to]=${span.to}`,
+  ].join('&')
+}
+
+/** Next page, or null when metadata or a short page says this was the last. */
+export function nextBookingPage(page: number, rowCount: number, metadata: unknown) {
+  if (page >= MAX_BOOKING_PAGES) return null
+  const pages = isRecord(metadata) && typeof metadata.pages_count === 'number' ? metadata.pages_count : null
+  if (pages != null) return page < pages ? page + 1 : null
+  return rowCount >= BOOKING_PAGE_SIZE ? page + 1 : null
+}
+
+/** Rows from a paginated list. `data` may be an array or an id-keyed object. */
+export function bookingRows(input: unknown): unknown[] {
+  if (Array.isArray(input)) return input
+  if (!isRecord(input)) return []
+  for (const key of ['data', 'bookings', 'result', 'items', 'records']) {
+    const value = input[key]
+    if (Array.isArray(value)) return value
+    if (isRecord(value)) {
+      const rows = Object.values(value).filter(isRecord)
+      if (rows.length) return rows
+    }
+  }
+  return []
+}
+
+/** Top-level keys of one raw booking. Values, including client details, are not copied. */
+export function bookingRecordKeys(row: unknown) {
+  const record = isRecord(row) && isRecord(row.booking) ? row.booking : row
+  return isRecord(record) ? Object.keys(record).sort() : []
 }
 
 /** Today minus 7 days, or the 1st of this month when that is earlier, through today plus 60 days. */
@@ -293,45 +377,40 @@ async function adminGet(path: string) {
   return body
 }
 
-function noteFetch(count: number) {
+function noteFetch(rawCount: number, mappedCount: number, sampleKeys: string[] | null) {
   snapshot.lastFetch = new Date().toISOString()
-  snapshot.count = count
+  snapshot.rawCount = rawCount
+  snapshot.mappedCount = mappedCount
+  snapshot.count = mappedCount
+  snapshot.sampleKeys = sampleKeys
   snapshot.error = null
   snapshot.authOk = true
 }
 
 export async function fetchSimplySpan(now = new Date()) {
-  const today = zonedDate(now, ZONE)
-  const span = bookingSpan(today)
-  const params = new URLSearchParams()
-  params.set('on_page', '200')
-  params.set('page', '1')
-  params.set('filter[date_from]', span.from)
-  params.set('filter[date_to]', span.to)
-  const first = await adminGet(`/admin/bookings?${params.toString()}`)
-  const firstRows = listRows(first)
-  const combined = firstRows.length < 200 ? firstRows : [...firstRows, ...listRows(await adminGet(`/admin/bookings?${pageTwo(params)}`))]
-  const bookings = mapSimplyBookings(combined)
-  noteFetch(bookings.length)
+  const span = bookingSpan(zonedDate(now, ZONE))
+  const rows: unknown[] = []
+  let sample: unknown = null
+  let page = 1
+  let body: unknown = null
+  while (page) {
+    body = await adminGet(`/admin/bookings?${bookingListQuery(page, span)}`)
+    const batch = bookingRows(body)
+    if (!sample && batch.length) sample = batch[0]
+    rows.push(...batch)
+    const metadata = isRecord(body) ? body.metadata : null
+    const next = nextBookingPage(page, batch.length, metadata)
+    page = next ?? 0
+  }
+  const bookings = mapSimplyBookings(rows)
+  noteFetch(rows.length, bookings.length, sample ? bookingRecordKeys(sample) : null)
+  console.info(`SimplyBook bookings mapped (${rows.length} raw, ${bookings.length} kept)`)
   return bookings
-}
-
-function pageTwo(params: URLSearchParams) {
-  const next = new URLSearchParams(params)
-  next.set('page', '2')
-  return next.toString()
-}
-
-function listRows(input: unknown): unknown[] {
-  if (Array.isArray(input)) return input
-  if (isRecord(input) && Array.isArray(input.data)) return input.data
-  if (isRecord(input) && Array.isArray(input.bookings)) return input.bookings
-  return []
 }
 
 export async function fetchSimplyDay(date: string) {
   const params = new URLSearchParams()
-  params.set('on_page', '200')
+  params.set('on_page', String(BOOKING_PAGE_SIZE))
   params.set('filter[date]', date)
   params.set('filter[date_from]', date)
   params.set('filter[date_to]', date)
@@ -344,7 +423,7 @@ export async function fetchSimplyMonth(month: string) {
   const from = `${month}-01`
   const to = `${month}-${String(last).padStart(2, '0')}`
   const params = new URLSearchParams()
-  params.set('on_page', '200')
+  params.set('on_page', String(BOOKING_PAGE_SIZE))
   params.set('filter[date_from]', from)
   params.set('filter[date_to]', to)
   return mapSimplyBookings(await adminGet(`/admin/bookings?${params.toString()}`))

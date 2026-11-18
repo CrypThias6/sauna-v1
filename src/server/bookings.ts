@@ -27,6 +27,9 @@ export type BookingStatus = {
   authOk: boolean | null
   lastFetch: string | null
   count: number | null
+  rawCount: number | null
+  mappedCount: number | null
+  sampleKeys: string[] | null
   error: string | null
 }
 
@@ -105,13 +108,35 @@ export async function loadMonth(month: string, now = new Date()): Promise<Bookin
 /** Staff-only. No company name, login, token, or key. */
 export async function bookingStatus(now = new Date()): Promise<BookingStatus> {
   const source = bookingsMode()
-  if (source !== 'simplybook') return { source, authOk: null, lastFetch: null, count: null, error: null }
-  if (!simplyBookReady()) return { source, authOk: false, lastFetch: null, count: null, error: 'SimplyBook login is not set.' }
+  if (source !== 'simplybook') {
+    return { source, authOk: null, lastFetch: null, count: null, rawCount: null, mappedCount: null, sampleKeys: null, error: null }
+  }
+  if (!simplyBookReady()) {
+    return {
+      source,
+      authOk: false,
+      lastFetch: null,
+      count: null,
+      rawCount: null,
+      mappedCount: null,
+      sampleKeys: null,
+      error: 'SimplyBook login is not set.',
+    }
+  }
   const current = simplyBookSnapshot()
   const fetched = current.lastFetch ? Date.parse(current.lastFetch) : NaN
   if (!Number.isFinite(fetched) || now.getTime() - fetched > 60_000) await loadWindow(now)
   const next = simplyBookSnapshot()
-  return { source, authOk: next.authOk, lastFetch: next.lastFetch, count: next.count, error: next.error }
+  return {
+    source,
+    authOk: next.authOk,
+    lastFetch: next.lastFetch,
+    count: next.count,
+    rawCount: next.rawCount,
+    mappedCount: next.mappedCount,
+    sampleKeys: next.sampleKeys,
+    error: next.error,
+  }
 }
 
 export async function applyWebhookBooking(id: string, cancelled: boolean) {
