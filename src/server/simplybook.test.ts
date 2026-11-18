@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   bookingListQuery,
+  bookingListRefusal,
   bookingRecordKeys,
   bookingRows,
   bookingSpan,
@@ -139,7 +140,7 @@ const adminPage = {
       end_datetime: '2026-11-18 19:30:00',
       duration: 90,
       service: { id: 3, name: 'Small sauna' },
-      provider: { id: 1, name: 'Cardrona', qty: 6 },
+      provider: { id: 1, name: 'Camp only 8 person sauna', qty: 6 },
       client: { id: 9, name: 'Aroha Jones', email: 'secret@example.com', phone: '021000000' },
     },
     {
@@ -223,6 +224,37 @@ describe('SimplyBook admin list', () => {
     expect(nextBookingPage(2, 6, { pages_count: 2 })).toBeNull()
     expect(nextBookingPage(1, 100, {})).toBe(2)
     expect(nextBookingPage(1, 4, {})).toBeNull()
+  })
+})
+
+describe('SimplyBook rooms and refusals', () => {
+  const providers = [
+    ['Camp only 8 person sauna', 'Small'],
+    ['Camp only 12 Person Sauna', 'Big'],
+    ['Lake Hāwea (12 Person Sauna)', 'Big'],
+    ['Lake Hāwea Private Sauna (up to 8)', 'Small'],
+    ['Cardrona Shared Sauna (12 person)', 'Big'],
+    ['Cardrona Private Sauna', 'Small'],
+  ] as const
+
+  it('maps 8-person and private providers to Small, and 12-person and shared to Big', () => {
+    for (const [name, room] of providers) {
+      const booking = mapSimplyBooking({
+        id: name,
+        status: 'confirmed',
+        start_datetime: '2026-11-18 18:00:00',
+        end_datetime: '2026-11-18 19:00:00',
+        provider: { name },
+      })
+      expect(booking?.room, name).toBe(room)
+    }
+  })
+
+  it('treats an error body on HTTP 200 as a refusal and leaves an empty page alone', () => {
+    expect(bookingListRefusal({ code: 'AccessDenied', message: 'Access denied' }, 200)).toBe(
+      'SimplyBook refused the bookings request (200). Access denied',
+    )
+    expect(bookingListRefusal({ data: [], metadata: { items_count: 0, pages_count: 0 } }, 200)).toBeNull()
   })
 })
 

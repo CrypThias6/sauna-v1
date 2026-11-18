@@ -86,11 +86,10 @@ function statusOf(value: unknown): 'confirmed' | 'cancelled' {
 }
 
 function roomOf(record: Record<string, unknown>): 'Small' | 'Big' {
-  const blob = [record.service, record.service_name, record.provider, record.provider_name, record.unit, record.location, record.event]
-    .map(text)
-    .join(' ')
-    .toLowerCase()
-  if (/\bsmall\b/.test(blob)) return 'Small'
+  const provider = [record.provider, record.provider_name, record.unit, record.unit_name].map(text).join(' ').trim()
+  const blob = (provider || [record.service, record.service_name, record.event, record.location].map(text).join(' ')).toLowerCase()
+  if (/\b12\b/.test(blob) || /\bshared\b/.test(blob)) return 'Big'
+  if (/\b8\b/.test(blob) || /\bprivate\b/.test(blob) || /\bsmall\b/.test(blob)) return 'Small'
   return 'Big'
 }
 
@@ -283,8 +282,22 @@ function detailFrom(body: unknown): string {
   return ''
 }
 
+/**
+ * A 200 from /admin/bookings can still be AccessDenied: `{ code, message }` and no rows.
+ * An empty page is `{ data: [], metadata }` and is not an error.
+ */
+export function bookingListRefusal(body: unknown, status: number) {
+  if (!isRecord(body) || bookingRows(body).length > 0) return null
+  const code = body.code ?? (isRecord(body.error) ? body.error.code : undefined)
+  const hasCode = (typeof code === 'string' && code.trim() !== '') || typeof code === 'number'
+  const message = detailFrom(body)
+  if (!hasCode && !message) return null
+  if (!hasCode && (Array.isArray(body.data) || isRecord(body.metadata))) return null
+  return simplyBookProblem('bookings', status, body, true)
+}
+
 /** A short SimplyBook message safe to show and log. Drops anything that looks like a credential. */
-export function simplyBookProblem(kind: 'auth' | 'bookings', status: number, body?: unknown) {
+export function simplyBookProblem(kind: 'auth' | 'bookings', status: number, body?: unknown, refused = false) {
   const detail = detailFrom(body).replace(/\s+/g, ' ').trim()
   const safe = detail && detail.length <= 140 && !/[A-Za-z0-9+/=_-]{24,}/.test(detail) && !/(password|secret|token|api[_ ]?key)\s*[:=]/i.test(detail) ? detail : ''
   if (kind === 'auth' && status === 0) return safe ? `SimplyBook login did not return a token. ${safe}` : 'SimplyBook login did not return a token.'
@@ -292,7 +305,7 @@ export function simplyBookProblem(kind: 'auth' | 'bookings', status: number, bod
     ? status === 401 || status === 403
       ? `SimplyBook refused the login (${status}).`
       : `SimplyBook login failed (${status}).`
-    : status === 401 || status === 403
+    : refused || status === 401 || status === 403
       ? `SimplyBook refused the bookings request (${status}).`
       : `SimplyBook bookings failed (${status}).`
   return safe ? `${head} ${safe}` : head
@@ -362,18 +375,14 @@ async function adminGet(path: string) {
     fail(snapshot.error)
   }
   const body = await response.json().catch(() => null)
-  if (!response.ok) {
-    snapshot.error = simplyBookProblem('bookings', response.status, body)
+  const items = isRecord(body) && isRecord(body.metadata) && typeof body.metadata.items_count === 'number' ? body.metadata.items_count : null
+  const raw = bookingRows(body).length
+  console.info(`SimplyBook bookings HTTP ${response.status} items_count ${items === null ? 'none' : items} rows ${raw}`)
+  const refusal = bookingListRefusal(body, response.status)
+  if (!response.ok || refusal) {
+    snapshot.error = refusal || simplyBookProblem('bookings', response.status, body)
     fail(snapshot.error)
   }
-  const rows = Array.isArray(body)
-    ? body.length
-    : isRecord(body) && Array.isArray(body.data)
-      ? body.data.length
-      : isRecord(body) && Array.isArray(body.bookings)
-        ? body.bookings.length
-        : 0
-  console.info(`SimplyBook bookings ok (${rows})`)
   return body
 }
 

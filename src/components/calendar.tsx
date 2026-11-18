@@ -68,7 +68,7 @@ export function Calendar() {
       const day = index + 1
       const visits = book.bookings.filter((booking) => dayOf(booking.start) === day && booking.status !== 'cancelled')
       const isToday = day === todayDate
-      const known = visits.every((booking) => booking.people != null)
+      const known = visits.length > 0 && visits.every((booking) => booking.people != null)
       const people = known ? visits.reduce((sum, booking) => sum + (booking.people ?? 0), 0) : null
       return { day, visits, isToday, people }
     })
@@ -109,26 +109,30 @@ export function Calendar() {
               day: 'numeric',
               month: 'long',
             })
+            const sessions = day.visits.length
             const count = !book.connected
               ? 'calendar not connected'
-              : day.people == null
-                ? 'count unknown'
-                : day.people === 0
-                  ? 'nobody coming'
-                  : `${day.people} ${peopleWord(day.people)}`
+              : sessions === 0
+                ? 'nobody coming'
+                : day.people == null
+                  ? `${sessions} ${sessions === 1 ? 'session' : 'sessions'}`
+                  : day.people === 0
+                    ? 'nobody coming'
+                    : `${day.people} ${peopleWord(day.people)}`
+            const badge = !book.connected || sessions === 0 ? null : day.people != null && day.people > 0 ? day.people : sessions
             return (
               <button
                 key={day.day}
                 type="button"
                 className="cal-day"
                 data-today={day.isToday}
-                data-empty={!book.connected || day.people == null || day.people === 0}
+                data-empty={!book.connected || sessions === 0 || day.people === 0}
                 aria-pressed={day.day === selected}
                 aria-label={`${label}, ${count}${day.isToday ? ', today' : ''}`}
                 onClick={() => setSelected(day.day)}
               >
                 <span className="cal-num">{day.day}</span>
-                {book.connected && day.people != null && day.people > 0 ? <span className="cal-count">{day.people}</span> : null}
+                {badge != null ? <span className="cal-count">{badge}</span> : null}
               </button>
             )
           })}
