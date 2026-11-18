@@ -1,13 +1,17 @@
 import { useState, useSyncExternalStore } from 'react'
+import { useSauna } from '../state/store'
 import type { PiqoAction } from '../lib/lights'
+import { setOutdoorHold, shownOutdoor, useOutdoorHold } from '../lib/light-panel'
 import { getSettings, updateSettings, useSettings } from '../lib/settings'
 import { markSession, sessionGate, staffFetch, subscribeSession } from '../lib/session'
 
 export function Piqo() {
+  const { now } = useSauna()
   const settings = useSettings()
   const gate = useSyncExternalStore(subscribeSession, sessionGate, () => 'unknown' as const)
+  const hold = useOutdoorHold()
+  const outdoor = shownOutdoor(new Date(now), settings.outdoorOn, settings.outdoorOff, hold)
   const [indoor, setIndoor] = useState<'on' | 'off'>('off')
-  const [outdoor, setOutdoor] = useState<'on' | 'off'>('off')
   const [pending, setPending] = useState<null | 'indoor' | 'outdoor'>(null)
   const [fault, setFault] = useState<string | null>(null)
 
@@ -47,7 +51,7 @@ export function Piqo() {
         }
         const next = on ? 'off' : 'on'
         if (which === 'indoor') setIndoor(next)
-        else setOutdoor(next)
+        else setOutdoorHold(next, new Date(now), settings.outdoorOn, settings.outdoorOff)
       })
       .catch(() => setFault('The lights did not change. Try again.'))
       .finally(() => setPending(null))

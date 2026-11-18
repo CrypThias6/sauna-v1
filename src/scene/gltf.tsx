@@ -19,6 +19,9 @@ import { heatUnit } from '../lib/heat'
 import { useHinge } from './hinge'
 import { Barrel } from './barrel'
 import { Cabin } from './cabin'
+import { DeckSkirt } from './deck'
+import { shownOutdoor, useOutdoorHold } from '../lib/light-panel'
+import { useSettings } from '../lib/settings'
 import { useSauna } from '../state/store'
 import { People, Steam, Walker } from './people'
 import { ChimneySmoke } from './smoke'
@@ -107,6 +110,8 @@ type Rig = {
  */
 function prepareModel(source: Object3D): Rig {
   const root = source.clone(true)
+  const builtDeck = root.getObjectByName('Deck')
+  if (builtDeck) builtDeck.visible = false
   cloneMaterials(root)
   root.updateWorldMatrix(true, true)
 
@@ -289,6 +294,14 @@ function FallbackLights({ sauna }: { sauna: Sauna }) {
   )
 }
 
+function OutdoorDeck({ sauna }: { sauna: Sauna }) {
+  const { now } = useSauna()
+  const settings = useSettings()
+  const hold = useOutdoorHold()
+  const on = shownOutdoor(new Date(now), settings.outdoorOn, settings.outdoorOff, hold) === 'on'
+  return <DeckSkirt sauna={sauna} on={on} />
+}
+
 export function SaunaBody({ sauna }: { sauna: Sauna }) {
   const fallback = (
     <>
@@ -312,6 +325,7 @@ export function SaunaBody({ sauna }: { sauna: Sauna }) {
       )}
       <Walker roomId={sauna.id} />
       <Steam sauna={sauna} />
+      <OutdoorDeck sauna={sauna} />
     </group>
   )
 }
