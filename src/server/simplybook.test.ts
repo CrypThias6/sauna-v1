@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapSimplyBooking, mapSimplyBookings } from './simplybook.js'
+import { mapSimplyBooking, mapSimplyBookings, simplyBookProblem } from './simplybook.js'
 
 describe('SimplyBook mapping', () => {
   it('keeps the client first name, party size, service and Auckland times, and drops cancelled', () => {
@@ -49,5 +49,15 @@ describe('SimplyBook mapping', () => {
     expect(booking?.people).toBeNull()
     expect(booking?.room).toBe('Small')
     expect(booking?.name).toBe('Tim')
+  })
+})
+
+describe('SimplyBook errors', () => {
+  it('keeps a short refusal and drops anything that looks like a credential', () => {
+    expect(simplyBookProblem('auth', 401, { message: 'Invalid login or password' })).toBe('SimplyBook refused the login (401). Invalid login or password')
+    expect(simplyBookProblem('auth', 0, {})).toBe('SimplyBook login did not return a token.')
+    expect(simplyBookProblem('bookings', 403, { error: { message: 'Forbidden' } })).toBe('SimplyBook refused the bookings request (403). Forbidden')
+    expect(simplyBookProblem('auth', 401, { message: 'password: hunter2-and-a-long-token' })).toBe('SimplyBook refused the login (401).')
+    expect(simplyBookProblem('bookings', 500, { message: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9' })).toBe('SimplyBook bookings failed (500).')
   })
 })

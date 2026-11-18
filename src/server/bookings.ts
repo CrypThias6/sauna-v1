@@ -14,6 +14,11 @@ export type BookingLoad = {
   error: string | null
 }
 
+function bookingError(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+  return message.startsWith('SimplyBook') ? message : 'Bookings are unavailable.'
+}
+
 function onDay(bookings: Booking[], date: string) {
   return bookings.filter((booking) => booking.status !== 'cancelled' && booking.start.startsWith(date))
 }
@@ -40,10 +45,10 @@ export async function loadDay(date: string): Promise<BookingLoad> {
     const rest = previous.filter((booking) => !booking.start.startsWith(date))
     await writeBookingCache([...rest, ...bookings])
     return { connected: true, bookings, error: null }
-  } catch {
+  } catch (error) {
     const stale = (await readBookingCache())?.bookings
     if (stale) return { connected: true, bookings: onDay(stale, date), error: null }
-    return { connected: true, bookings: [], error: 'Bookings are unavailable.' }
+    return { connected: true, bookings: [], error: bookingError(error) }
   }
 }
 
@@ -56,10 +61,10 @@ export async function loadMonth(month: string): Promise<BookingLoad> {
     const bookings = await fetchSimplyMonth(month)
     await writeBookingCache(bookings)
     return { connected: true, bookings, error: null }
-  } catch {
+  } catch (error) {
     const stale = (await readBookingCache())?.bookings
     if (stale) return { connected: true, bookings: inMonth(stale, month), error: null }
-    return { connected: true, bookings: [], error: 'Bookings are unavailable.' }
+    return { connected: true, bookings: [], error: bookingError(error) }
   }
 }
 

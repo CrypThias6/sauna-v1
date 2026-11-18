@@ -127,21 +127,64 @@ export function mapSimplyBookings(input: unknown): Booking[] {
 let token = ''
 let tokenAt = 0
 
+function detailFrom(body: unknown): string {
+  if (!isRecord(body)) return ''
+  if (typeof body.message === 'string') return body.message
+  if (typeof body.error === 'string') return body.error
+  if (isRecord(body.error) && typeof body.error.message === 'string') return body.error.message
+  if (Array.isArray(body.errors) && isRecord(body.errors[0]) && typeof body.errors[0].message === 'string') return body.errors[0].message
+  return ''
+}
+
+/** A short SimplyBook message safe to show and log. Drops anything that looks like a credential. */
+export function simplyBookProblem(kind: 'auth' | 'bookings', status: number, body?: unknown) {
+  const detail = detailFrom(body).replace(/\s+/g, ' ').trim()
+  const safe = detail && detail.length <= 140 && !/[A-Za-z0-9+/=_-]{24,}/.test(detail) && !/(password|secret|token|api[_ ]?key)\s*[:=]/i.test(detail) ? detail : ''
+  if (kind === 'auth' && status === 0) return safe ? `SimplyBook login did not return a token. ${safe}` : 'SimplyBook login did not return a token.'
+  const head = kind === 'auth'
+    ? status === 401 || status === 403
+      ? `SimplyBook refused the login (${status}).`
+      : `SimplyBook login failed (${status}).`
+    : status === 401 || status === 403
+      ? `SimplyBook refused the bookings request (${status}).`
+      : `SimplyBook bookings failed (${status}).`
+  return safe ? `${head} ${safe}` : head
+}
+
+function unreachable(kind: 'auth' | 'bookings', error: unknown) {
+  const name = error instanceof Error ? error.name : ''
+  const timedOut = name === 'TimeoutError' || name === 'AbortError'
+  if (kind === 'auth') return timedOut ? 'SimplyBook login timed out.' : 'SimplyBook login could not be reached.'
+  return timedOut ? 'SimplyBook bookings timed out.' : 'SimplyBook bookings could not be reached.'
+}
+
+function fail(message: string): never {
+  console.error(message)
+  throw new Error(message)
+}
+
 async function authorize(force = false) {
   if (!force && token && Date.now() - tokenAt < 30 * 60 * 1000) return token
-  const response = await fetch(`${baseUrl()}/admin/auth`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ company: company(), login: login(), password: password() }),
-    signal: AbortSignal.timeout(10_000),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl()}/admin/auth`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ company: company(), login: login(), password: password() }),
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch (error) {
+    token = ''
+    fail(unreachable('auth', error))
+  }
   const body = (await response.json().catch(() => null)) as { token?: unknown } | null
   if (!response.ok || typeof body?.token !== 'string' || !body.token) {
     token = ''
-    throw new Error('not configured')
+    fail(simplyBookProblem('auth', response.ok ? 0 : response.status, body))
   }
   token = body.token
   tokenAt = Date.now()
+  console.info('SimplyBook auth ok')
   return token
 }
 
@@ -153,13 +196,26 @@ async function adminGet(path: string) {
     'x-user-token': auth,
   })
   let auth = await authorize()
-  let response = await fetch(`${baseUrl()}${path}`, { headers: headers(auth), signal: AbortSignal.timeout(15_000) })
-  if (response.status === 401) {
-    auth = await authorize(true)
+  let response: Response
+  try {
     response = await fetch(`${baseUrl()}${path}`, { headers: headers(auth), signal: AbortSignal.timeout(15_000) })
+    if (response.status === 401) {
+      auth = await authorize(true)
+      response = await fetch(`${baseUrl()}${path}`, { headers: headers(auth), signal: AbortSignal.timeout(15_000) })
+    }
+  } catch (error) {
+    fail(unreachable('bookings', error))
   }
   const body = await response.json().catch(() => null)
-  if (!response.ok) throw new Error('Bookings are unavailable.')
+  if (!response.ok) fail(simplyBookProblem('bookings', response.status, body))
+  const rows = Array.isArray(body)
+    ? body.length
+    : isRecord(body) && Array.isArray(body.data)
+      ? body.data.length
+      : isRecord(body) && Array.isArray(body.bookings)
+        ? body.bookings.length
+        : 0
+  console.info(`SimplyBook bookings ok (${rows})`)
   return body
 }
 

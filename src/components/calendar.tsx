@@ -78,8 +78,9 @@ export function Calendar() {
           <h2>{monthName}</h2>
           <span>{year}</span>
         </header>
-        {book.known && !book.connected ? <p className="cal-none">Booking calendar not connected</p> : null}
-        {book.known && book.connected && book.bookings.length === 0 ? <p className="cal-none">No bookings yet</p> : null}
+        {book.known && book.error ? <p className="cal-none">{book.error}</p> : null}
+        {book.known && !book.connected && !book.error ? <p className="cal-none">Booking calendar not connected</p> : null}
+        {book.known && book.connected && !book.error && book.bookings.length === 0 ? <p className="cal-none">No bookings yet</p> : null}
         <div className="cal-grid" role="group" aria-label={`${monthName} ${year}`}>
           {DOW.map((label) => (
             <div key={label} className="cal-dow">
