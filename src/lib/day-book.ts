@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { sessionGate, staffFetch, subscribeSession } from './session'
 
 export type LiveBooking = {
   id: string
@@ -15,9 +16,28 @@ export type DayBook = {
   bookings: LiveBooking[]
   error: string | null
   known: boolean
+  updatedAt: number | null
 }
 
-const empty: DayBook = { connected: false, bookings: [], error: null, known: false }
+const empty: DayBook = { connected: false, bookings: [], error: null, known: false, updatedAt: null }
+
+/** Keep the last list when the new pull failed. A clean pull replaces it and stamps the time. */
+export function mergeBook(previous: DayBook, incoming: DayBook, now = Date.now()): DayBook {
+  if (!incoming.known) return previous
+  if (incoming.error) {
+    const keep = previous.bookings.length > 0
+    return {
+      ...previous,
+      bookings: keep ? previous.bookings : incoming.bookings,
+      updatedAt: previous.updatedAt,
+      known: true,
+      connected: incoming.connected || previous.connected,
+      error: incoming.error,
+    }
+  }
+  return { ...incoming, error: null, updatedAt: now }
+}
+
 let today = empty
 let monthBook: DayBook = empty
 const listeners = new Set<() => void>()
@@ -45,16 +65,22 @@ function rows(value: unknown): LiveBooking[] {
   })
 }
 
-async function load(path: string) {
-  const response = await fetch(path, { headers: { accept: 'application/json' }, credentials: 'same-origin' })
+async function load(path: string): Promise<DayBook | null> {
+  let response: Response
+  try {
+    response = await staffFetch(path)
+  } catch {
+    return { connected: false, bookings: [], error: 'Bookings are unavailable.', known: true, updatedAt: null }
+  }
   if (response.status === 401) return null
   const body = (await response.json().catch(() => null)) as { connected?: unknown; error?: unknown; bookings?: unknown } | null
-  if (!response.ok || !body) return { connected: false, bookings: [] as LiveBooking[], error: 'Bookings are unavailable.', known: true }
+  if (!response.ok || !body) return { connected: false, bookings: [], error: 'Bookings are unavailable.', known: true, updatedAt: null }
   return {
     connected: body.connected === true,
     bookings: rows(body),
     error: typeof body.error === 'string' ? body.error : null,
     known: true,
+    updatedAt: null,
   }
 }
 
@@ -69,19 +95,36 @@ function nzDate(now = Date.now()) {
   return `${pick('year')}-${pick('month')}-${pick('day')}`
 }
 
+let inflight = false
+
 async function refresh() {
-  const date = nzDate()
-  const month = date.slice(0, 7)
-  const [day, mon] = await Promise.all([load(`/api/bookings?date=${date}`), load(`/api/bookings?month=${month}`)])
-  if (day) today = day
-  if (mon) monthBook = mon
-  emit()
+  if (inflight || sessionGate() === 'needed') return
+  if (document.visibilityState === 'hidden') return
+  inflight = true
+  try {
+    const date = nzDate()
+    const month = date.slice(0, 7)
+    const [day, mon] = await Promise.all([load(`/api/bookings?date=${date}`), load(`/api/bookings?month=${month}`)])
+    if (day) today = mergeBook(today, day)
+    if (mon) monthBook = mergeBook(monthBook, mon)
+    if (day || mon) emit()
+  } finally {
+    inflight = false
+  }
+}
+
+function onVisible() {
+  if (document.visibilityState === 'visible') void refresh()
 }
 
 function ensure() {
   if (timer != null) return
   void refresh()
-  timer = window.setInterval(() => void refresh(), 3 * 60 * 1000)
+  timer = window.setInterval(() => void refresh(), 60_000)
+  document.addEventListener('visibilitychange', onVisible)
+  subscribeSession(() => {
+    if (sessionGate() === 'in') void refresh()
+  })
 }
 
 export function getTodayBook() {

@@ -16,7 +16,7 @@ import {
   staffConfigured,
 } from './auth.js'
 import type { Booking } from './booking.js'
-import { applyWebhookBooking, loadDay, loadMonth, webhookLooksCancelled } from './bookings.js'
+import { applyWebhookBooking, bookingStatus, loadDay, loadMonth, webhookLooksCancelled } from './bookings.js'
 import { simplyBookConfigured } from './simplybook.js'
 import { isPiqoAction, lightOf, runPiqoAction } from './piqo.js'
 import { CATCH_UP_MS, bookingDates, runTick } from './schedule.js'
@@ -91,6 +91,7 @@ async function getBookings(request: Request) {
   const denied = requireStaff(request)
   if (denied) return denied
   const url = new URL(request.url)
+  if (url.searchParams.get('status') === '1') return json(await bookingStatus())
   const month = url.searchParams.get('month') ?? ''
   const date = url.searchParams.get('date') ?? ''
   if (!month && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'Use date=YYYY-MM-DD or month=YYYY-MM.' }, 400)

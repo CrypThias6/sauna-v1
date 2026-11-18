@@ -4,33 +4,54 @@
  * Times without a zone are read as Pacific/Auckland wall time.
  */
 import type { Booking } from './booking.js'
-import { formatZoned, wallToInstant } from './time.js'
+import { addCalendarDays, formatZoned, wallToInstant, zonedDate } from './time.js'
 
 const ZONE = 'Pacific/Auckland'
+const TOKEN_FALLBACK_MS = 55 * 60 * 1000
+const TOKEN_SKEW_MS = 60 * 1000
 
-export function simplyBookConfigured() {
-  return Boolean(company() && login() && password())
+function clean(value: string | undefined) {
+  return (value ?? '').replace(/^\uFEFF/, '').trim().replace(/^['"]+|['"]+$/g, '').trim()
+}
+
+/** `simplybook` after trim and case-fold, or blank. Surrounding quotes are ignored. */
+export function bookingsSourceFlag() {
+  return clean(process.env.BOOKINGS_SOURCE).toLowerCase()
 }
 
 function company() {
-  return process.env.SIMPLYBOOK_COMPANY?.trim() ?? ''
+  return clean(process.env.SIMPLYBOOK_COMPANY)
 }
 
 function login() {
-  return process.env.SIMPLYBOOK_USER_LOGIN?.trim() || company()
+  return clean(process.env.SIMPLYBOOK_USER_LOGIN) || company()
 }
 
 function password() {
   return (
-    process.env.SIMPLYBOOK_USER_PASSWORD?.trim() ||
-    process.env.SIMPLYBOOK_USER_KEY?.trim() ||
-    process.env.SIMPLYBOOK_API_KEY?.trim() ||
-    ''
+    clean(process.env.SIMPLYBOOK_USER_PASSWORD) ||
+    clean(process.env.SIMPLYBOOK_USER_KEY) ||
+    clean(process.env.SIMPLYBOOK_API_KEY)
   )
 }
 
+/** SimplyBook when the flag says so, or when the company and a key are present. */
+export function bookingsMode(): 'simplybook' | 'none' {
+  if (bookingsSourceFlag() === 'simplybook') return 'simplybook'
+  if (company() && password()) return 'simplybook'
+  return 'none'
+}
+
+export function simplyBookReady() {
+  return bookingsMode() === 'simplybook' && Boolean(company() && login() && password())
+}
+
+export function simplyBookConfigured() {
+  return simplyBookReady()
+}
+
 function baseUrl() {
-  return (process.env.SIMPLYBOOK_API_URL || 'https://user-api-v2.simplybook.me').replace(/\/$/, '')
+  return (clean(process.env.SIMPLYBOOK_API_URL) || 'https://user-api-v2.simplybook.me').replace(/\/$/, '')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -125,7 +146,49 @@ export function mapSimplyBookings(input: unknown): Booking[] {
 }
 
 let token = ''
-let tokenAt = 0
+let tokenUntil = 0
+
+export type SimplyBookSnapshot = {
+  authOk: boolean | null
+  lastFetch: string | null
+  count: number | null
+  error: string | null
+}
+
+const snapshot: SimplyBookSnapshot = { authOk: null, lastFetch: null, count: null, error: null }
+
+export function simplyBookSnapshot(): SimplyBookSnapshot {
+  return { ...snapshot }
+}
+
+/** When a stored token should be thrown away. Uses expires_in / expires_at, otherwise 55 minutes. */
+export function tokenExpiresAt(body: unknown, now: number) {
+  if (!isRecord(body)) return now + TOKEN_FALLBACK_MS
+  const seconds = body.expires_in ?? body.expiresIn
+  const span = typeof seconds === 'number' ? seconds : typeof seconds === 'string' ? Number(seconds) : NaN
+  if (Number.isFinite(span) && span > 0) return now + span * 1000
+  for (const key of ['expires_at', 'expire', 'expires', 'token_expire']) {
+    const value = body[key]
+    if (typeof value === 'number' && value > 1_000_000_000_000) return value
+    if (typeof value === 'number' && value > 1_000_000_000) return value * 1000
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return now + TOKEN_FALLBACK_MS
+}
+
+export function tokenUsable(until: number, now: number) {
+  return until - TOKEN_SKEW_MS > now
+}
+
+/** Today minus 7 days, or the 1st of this month when that is earlier, through today plus 60 days. */
+export function bookingSpan(today: string) {
+  const weekAgo = addCalendarDays(today, -7)
+  const monthStart = `${today.slice(0, 7)}-01`
+  return { from: weekAgo < monthStart ? weekAgo : monthStart, to: addCalendarDays(today, 60) }
+}
 
 function detailFrom(body: unknown): string {
   if (!isRecord(body)) return ''
@@ -164,7 +227,7 @@ function fail(message: string): never {
 }
 
 async function authorize(force = false) {
-  if (!force && token && Date.now() - tokenAt < 30 * 60 * 1000) return token
+  if (!force && token && tokenUsable(tokenUntil, Date.now())) return token
   let response: Response
   try {
     response = await fetch(`${baseUrl()}/admin/auth`, {
@@ -175,15 +238,22 @@ async function authorize(force = false) {
     })
   } catch (error) {
     token = ''
-    fail(unreachable('auth', error))
+    tokenUntil = 0
+    snapshot.authOk = false
+    snapshot.error = unreachable('auth', error)
+    fail(snapshot.error)
   }
   const body = (await response.json().catch(() => null)) as { token?: unknown } | null
   if (!response.ok || typeof body?.token !== 'string' || !body.token) {
     token = ''
-    fail(simplyBookProblem('auth', response.ok ? 0 : response.status, body))
+    tokenUntil = 0
+    snapshot.authOk = false
+    snapshot.error = simplyBookProblem('auth', response.ok ? 0 : response.status, body)
+    fail(snapshot.error)
   }
   token = body.token
-  tokenAt = Date.now()
+  tokenUntil = tokenExpiresAt(body, Date.now())
+  snapshot.authOk = true
   console.info('SimplyBook auth ok')
   return token
 }
@@ -204,10 +274,14 @@ async function adminGet(path: string) {
       response = await fetch(`${baseUrl()}${path}`, { headers: headers(auth), signal: AbortSignal.timeout(15_000) })
     }
   } catch (error) {
-    fail(unreachable('bookings', error))
+    snapshot.error = unreachable('bookings', error)
+    fail(snapshot.error)
   }
   const body = await response.json().catch(() => null)
-  if (!response.ok) fail(simplyBookProblem('bookings', response.status, body))
+  if (!response.ok) {
+    snapshot.error = simplyBookProblem('bookings', response.status, body)
+    fail(snapshot.error)
+  }
   const rows = Array.isArray(body)
     ? body.length
     : isRecord(body) && Array.isArray(body.data)
@@ -217,6 +291,42 @@ async function adminGet(path: string) {
         : 0
   console.info(`SimplyBook bookings ok (${rows})`)
   return body
+}
+
+function noteFetch(count: number) {
+  snapshot.lastFetch = new Date().toISOString()
+  snapshot.count = count
+  snapshot.error = null
+  snapshot.authOk = true
+}
+
+export async function fetchSimplySpan(now = new Date()) {
+  const today = zonedDate(now, ZONE)
+  const span = bookingSpan(today)
+  const params = new URLSearchParams()
+  params.set('on_page', '200')
+  params.set('page', '1')
+  params.set('filter[date_from]', span.from)
+  params.set('filter[date_to]', span.to)
+  const first = await adminGet(`/admin/bookings?${params.toString()}`)
+  const firstRows = listRows(first)
+  const combined = firstRows.length < 200 ? firstRows : [...firstRows, ...listRows(await adminGet(`/admin/bookings?${pageTwo(params)}`))]
+  const bookings = mapSimplyBookings(combined)
+  noteFetch(bookings.length)
+  return bookings
+}
+
+function pageTwo(params: URLSearchParams) {
+  const next = new URLSearchParams(params)
+  next.set('page', '2')
+  return next.toString()
+}
+
+function listRows(input: unknown): unknown[] {
+  if (Array.isArray(input)) return input
+  if (isRecord(input) && Array.isArray(input.data)) return input.data
+  if (isRecord(input) && Array.isArray(input.bookings)) return input.bookings
+  return []
 }
 
 export async function fetchSimplyDay(date: string) {

@@ -24,6 +24,17 @@ function clock(iso: string) {
   return `${pick('hour')}:${pick('minute')}`
 }
 
+function updatedLabel(at: number) {
+  const parts = new Intl.DateTimeFormat('en-NZ', {
+    timeZone: 'Pacific/Auckland',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(at))
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  return `Updated ${pick('hour')}:${pick('minute')}`
+}
+
 function dayOf(iso: string) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Pacific/Auckland',
@@ -78,7 +89,9 @@ export function Calendar() {
           <h2>{monthName}</h2>
           <span>{year}</span>
         </header>
-        {book.known && book.error ? <p className="cal-none">{book.error}</p> : null}
+        {book.known && (book.error || book.updatedAt) ? (
+          <p className="cal-fresh">{book.error || updatedLabel(book.updatedAt ?? 0)}</p>
+        ) : null}
         {book.known && !book.connected && !book.error ? <p className="cal-none">Booking calendar not connected</p> : null}
         {book.known && book.connected && !book.error && book.bookings.length === 0 ? <p className="cal-none">No bookings yet</p> : null}
         <div className="cal-grid" role="group" aria-label={`${monthName} ${year}`}>
