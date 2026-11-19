@@ -9,6 +9,7 @@ export type LiveBooking = {
   people: number | null
   status: string
   name?: string
+  location?: string
 }
 
 export type DayBook = {
@@ -61,6 +62,7 @@ function rows(value: unknown): LiveBooking[] {
       people: typeof row.people === 'number' && Number.isFinite(row.people) ? row.people : null,
       status: typeof row.status === 'string' ? row.status : 'confirmed',
       name: typeof row.name === 'string' ? row.name : undefined,
+      location: typeof row.location === 'string' ? row.location : undefined,
     }]
   })
 }

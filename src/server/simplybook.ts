@@ -4,6 +4,7 @@
  * Times without a zone are read as Pacific/Auckland wall time.
  */
 import type { Booking } from './booking.js'
+import { placeProvider } from './sites.js'
 import { addCalendarDays, formatZoned, wallToInstant, zonedDate } from './time.js'
 
 const ZONE = 'Pacific/Auckland'
@@ -85,12 +86,10 @@ function statusOf(value: unknown): 'confirmed' | 'cancelled' {
   return 'confirmed'
 }
 
-function roomOf(record: Record<string, unknown>): 'Small' | 'Big' {
+function placementOf(record: Record<string, unknown>) {
   const provider = [record.provider, record.provider_name, record.unit, record.unit_name].map(text).join(' ').trim()
-  const blob = (provider || [record.service, record.service_name, record.event, record.location].map(text).join(' ')).toLowerCase()
-  if (/\b12\b/.test(blob) || /\bshared\b/.test(blob)) return 'Big'
-  if (/\b8\b/.test(blob) || /\bprivate\b/.test(blob) || /\bsmall\b/.test(blob)) return 'Small'
-  return 'Big'
+  const blob = provider || [record.service, record.service_name, record.event, record.location].map(text).join(' ')
+  return placeProvider(blob)
 }
 
 function wall(value: unknown) {
@@ -155,15 +154,18 @@ export function mapSimplyBooking(input: unknown): Booking | null {
   if (!id) return null
   const client = text(record.client_name ?? record.client ?? record.name)
   const service = text(record.service_name ?? record.service ?? record.event)
-  return {
+  const place = placementOf(record)
+  const booking: Booking = {
     id,
-    room: roomOf(record),
+    room: place.room,
     start,
     end,
     people: peopleOf(record),
     status,
     name: firstName(client) || service || undefined,
   }
+  if (place.location) booking.location = place.location
+  return booking
 }
 
 export function mapSimplyBookings(input: unknown): Booking[] {

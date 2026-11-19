@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { spanLabel } from '../data/bookings'
 import { useMonthBook } from '../lib/day-book'
+import { SiteSelect } from './setup'
+import { useSetup } from '../lib/sites'
 import { peopleWord } from '../lib/format'
 import { useSauna } from '../state/store'
 
@@ -47,6 +49,8 @@ export function Calendar() {
   const { now, saunas, index } = useSauna()
   const sauna = saunas[index]
   const book = useMonthBook()
+  const { site } = useSetup()
+  const bookings = book.bookings.filter((booking) => !site.filtering || !booking.location || booking.location === site.id)
   const todayParts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Pacific/Auckland',
     year: 'numeric',
@@ -66,13 +70,13 @@ export function Calendar() {
   const days = useMemo(() => {
     return Array.from({ length: daysInMonth }, (_, index) => {
       const day = index + 1
-      const visits = book.bookings.filter((booking) => dayOf(booking.start) === day && booking.status !== 'cancelled')
+      const visits = bookings.filter((booking) => dayOf(booking.start) === day && booking.status !== 'cancelled')
       const isToday = day === todayDate
       const known = visits.length > 0 && visits.every((booking) => booking.people != null)
       const people = known ? visits.reduce((sum, booking) => sum + (booking.people ?? 0), 0) : null
       return { day, visits, isToday, people }
     })
-  }, [book.bookings, daysInMonth, todayDate])
+  }, [bookings, daysInMonth, todayDate])
 
   const current = selected != null ? days[selected - 1] : undefined
   const listed = (current?.visits ?? []).filter((booking) => !booking.room || booking.room === sauna.name)
@@ -88,12 +92,13 @@ export function Calendar() {
         <header className="cal-head">
           <h2>{monthName}</h2>
           <span>{year}</span>
+          <SiteSelect />
         </header>
         {book.known && (book.error || book.updatedAt) ? (
           <p className="cal-fresh">{book.error || updatedLabel(book.updatedAt ?? 0)}</p>
         ) : null}
         {book.known && !book.connected && !book.error ? <p className="cal-none">Booking calendar not connected</p> : null}
-        {book.known && book.connected && !book.error && book.bookings.length === 0 ? <p className="cal-none">No bookings yet</p> : null}
+        {book.known && book.connected && !book.error && bookings.length === 0 ? <p className="cal-none">No bookings yet</p> : null}
         <div className="cal-grid" role="group" aria-label={`${monthName} ${year}`}>
           {DOW.map((label) => (
             <div key={label} className="cal-dow">

@@ -47,6 +47,11 @@ function linkFor(name: PiqoAction) {
   return process.env[LINK_ENV[name]]?.trim() ?? ''
 }
 
+/** Names only. The link URLs stay on the server. */
+export function piqoLinksPresent() {
+  return ACTIONS.map((name) => ({ name, present: Boolean(linkFor(name)) }))
+}
+
 async function postLink(url: string): Promise<{ retry: true; error: string } | { retry: false; result: PiqoResult }> {
   try {
     const response = await fetch(url, {

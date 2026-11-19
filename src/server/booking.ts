@@ -7,6 +7,8 @@ export type Booking = {
   people: number | null
   status: 'confirmed' | 'cancelled'
   name?: string
+  /** Set when the provider name matches a site. Absent bookings stay visible on every site. */
+  location?: string
 }
 
 export interface BookingsSource {

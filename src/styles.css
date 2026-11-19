@@ -684,6 +684,46 @@ button { cursor: pointer; }
   font-size: 13px;
 }
 
+.site-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-pick select {
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.setup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.setup-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.setup-list li[data-ok='false'] .setup-mark { color: var(--heat); }
+.setup-mark { color: var(--muted); font-variant-numeric: tabular-nums; }
+
 .cal-fresh {
   margin: 6px 0 0;
   color: var(--muted);

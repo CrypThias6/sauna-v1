@@ -8,6 +8,7 @@ import { Calendar } from './calendar'
 import { Controls } from './controls'
 import { Piqo } from './piqo'
 import { Cameras } from './cameras'
+import { Setup } from './setup'
 import { Telemetry } from './telemetry'
 import { sessionGate, subscribeSession } from '../lib/session'
 import { Login } from './login'
@@ -53,6 +54,7 @@ export function Shell() {
         <div className="sheet">
           <div className="sheet-grab" aria-hidden="true" />
           <div className="sheet-inner">
+            <Setup />
             <Calendar />
             <Controls />
             <Piqo />

@@ -106,6 +106,12 @@ export async function loadMonth(month: string, now = new Date()): Promise<Bookin
 }
 
 /** Staff-only. No company name, login, token, or key. */
+/** Drop the short cache and read SimplyBook again. Used by the webhook. */
+export async function refreshBookings(now = new Date()) {
+  windowCache = null
+  return loadWindow(now)
+}
+
 export async function bookingStatus(now = new Date()): Promise<BookingStatus> {
   const source = bookingsMode()
   if (source !== 'simplybook') {

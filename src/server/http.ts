@@ -16,7 +16,8 @@ import {
   staffConfigured,
 } from './auth.js'
 import type { Booking } from './booking.js'
-import { applyWebhookBooking, bookingStatus, loadDay, loadMonth, webhookLooksCancelled } from './bookings.js'
+import { bookingStatus, loadDay, loadMonth, refreshBookings } from './bookings.js'
+import { setupReport } from './setup.js'
 import { simplyBookConfigured } from './simplybook.js'
 import { isPiqoAction, lightOf, runPiqoAction } from './piqo.js'
 import { CATCH_UP_MS, bookingDates, runTick } from './schedule.js'
@@ -240,26 +241,24 @@ async function getLog(request: Request) {
   }
 }
 
+async function getSetup(request: Request) {
+  const denied = requireStaff(request)
+  if (denied) return denied
+  return json(await setupReport())
+}
+
 async function postWebhook(request: Request) {
   const secret = process.env.SIMPLYBOOK_WEBHOOK_SECRET?.trim() ?? ''
   const given = new URL(request.url).searchParams.get('secret') ?? ''
   if (!secret || !simplyBookConfigured()) return json({ error: 'not configured' }, 503)
   if (!sameSecret(given, secret)) return json({ error: 'Unauthorized.' }, 401)
-  let body: unknown
   try {
-    body = await readBody(request)
+    await readBody(request)
   } catch {
     return json({ error: 'Bad request.' }, 400)
   }
-  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
-  const id = String(record.booking_id ?? record.bookingId ?? '').trim()
-  if (!id) return json({ error: 'Bad request.' }, 400)
-  const notice = String(record.notification_type ?? record.notificationType ?? '')
-  try {
-    await applyWebhookBooking(id, webhookLooksCancelled(notice))
-  } catch {
-    return json({ error: 'Bookings are unavailable.' }, 503)
-  }
+  const loaded = await refreshBookings()
+  if (loaded.error) return json({ error: loaded.error }, 503)
   return json({ ok: true })
 }
 
@@ -272,6 +271,7 @@ const routes: Record<string, Partial<Record<string, (request: Request) => Promis
   '/api/action': { POST: postAction },
   '/api/tick': { POST: postTick },
   '/api/log': { GET: getLog },
+  '/api/setup': { GET: getSetup },
   '/api/simplybook-webhook': { POST: postWebhook },
 }
 
